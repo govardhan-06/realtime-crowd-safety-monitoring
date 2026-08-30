@@ -6,30 +6,32 @@ Implement the locked capstone product **AI-Based Real-Time Crowd Safety Monitori
 
 The most important design principle is:
 
-> Reuse mature perception components; put project-specific engineering/research effort into interpretable crowd signals, temporal incident fusion, lifecycle/severity, evidence, and operational evaluation.
+> Reuse mature perception components; put project-specific engineering/research effort into interpretable crowd signals, temporal incident fusion, lifecycle/severity, evidence, explainability, and operational evaluation.
 
-## First action in a repository
+## Current project state
+
+**Milestone 1 — Offline Video Foundation is complete.**
+
+Do not redo M1 unless a later milestone exposes a concrete defect in the generic ingestion/timing/stage interfaces.
+
+The next milestone is:
+
+**M2 — Person Tracking and Crowd Signals**
+
+## First action before each remaining milestone
 
 Before editing code:
 
 1. Read repository-level `AGENTS.md` and all applicable nested instructions.
-2. Inspect existing language/framework/package conventions.
-3. Map this handoff to the existing repo instead of imposing the suggested folder tree.
-4. Identify existing tests, lint/typecheck/build commands.
-5. Read `PRD.md`, `ARCHITECTURE.md`, `ROADMAP.md`.
-6. Select **one milestone only**.
-7. Read that milestone file and relevant ADRs.
+2. Inspect the completed M1 implementation and its existing interfaces/tests.
+3. Read `PRD.md`, `ARCHITECTURE.md`, `DATA_AND_MODELS.md`, `ROADMAP.md`.
+4. Select **one milestone/sub-milestone only**.
+5. Read that milestone file and relevant ADRs.
+6. Map the handoff to the existing repository instead of imposing the suggested folder tree.
+7. Identify existing tests, lint/typecheck/build commands.
 8. Create repository-specific implementation planning artifacts according to the local Codex workflow.
 9. Challenge the plan for unnecessary infrastructure/scope.
-10. Implement, verify, review, and commit the milestone before starting the next.
-
-## Current recommended starting milestone
-
-**M1 — Offline Video Foundation**
-
-Do not start by training X3D or building the dashboard.
-
-A stable deterministic video runner is the dependency for all later work.
+10. Implement, verify, review, and commit before starting the next milestone.
 
 ## Hard constraints
 
@@ -41,37 +43,66 @@ Codex MUST NOT:
 - claim guaranteed stampede prediction;
 - train a detector or large video model from scratch;
 - make RWF-2000 a hard dependency;
+- make successful violence-model fine-tuning a prerequisite for M4-M6;
+- let a VLM create, close, escalate, or change incident severity;
 - introduce distributed infrastructure before a measured need;
 - skip the violence-only/crowd-only/naive-OR baselines;
 - replace the incident engine with repeated independent alerts;
 - silently hard-code experimental thresholds throughout application logic.
 
-## Preferred initial technical direction
+## Preferred technical direction
 
-Unless the repository already locks alternatives:
+Unless the repository already locks compatible alternatives:
 
 - Python 3.11+ for CV/ML/backend pipeline.
 - OpenCV/FFmpeg-compatible video decode.
-- PyTorch for video model.
-- Pretrained YOLO-family detector.
-- ByteTrack.
-- X3D-S as first fine-tuned violence recognizer.
+- PyTorch for local video models.
+- **YOLO26n** as the first pretrained person detector; try YOLO26s only if measured dense-scene recall requires it.
+- **ByteTrack** as the first tracker.
+- **M3A:** integrate a pretrained binary violence-classification checkpoint through a generic video-classification adapter.
+- **M3B:** run a bounded X3D-S transfer-learning experiment: frozen backbone/head training first, partial unfreezing only if validation justifies it.
 - FastAPI for final API.
 - PostgreSQL for final persistence.
 - Next.js for operator dashboard.
+- A configurable VLM adapter for evidence explanation in M5; default implementation may use Gemini video/image understanding if credentials are available.
 - YAML/TOML/structured config for experimental thresholds.
-- JSONL/Parquet/CSV artifacts for early offline runs.
+- JSONL/Parquet/CSV artifacts for offline runs.
 
-Treat versions as repository decisions. Pin them once compatibility is tested.
+Treat exact package/model versions as repository decisions. Pin them once compatibility is tested.
+
+## Model availability rule
+
+Every model-backed stage must expose explicit health/availability.
+
+Examples:
+- `available`
+- `degraded`
+- `unavailable`
+
+Missing model evidence must **not** be converted to a normal/zero-risk score.
+
+For example:
+
+```text
+violence model unavailable
+!=
+violence_score = 0
+```
+
+Downstream fusion should be able to distinguish “no violence evidence observed” from “violence branch did not produce evidence.”
 
 ## Engineering rules
 
 ### Interfaces
-Keep model adapters behind typed interfaces.
+
+Keep detector, tracker, violence model, and VLM behind typed adapters.
 
 ### Configuration
+
 All experimental parameters should be explicit:
+- detector model/checkpoint;
 - detector cadence;
+- tracker config;
 - clip length;
 - violence cadence;
 - ROI;
@@ -81,38 +112,50 @@ All experimental parameters should be explicit:
 - weights;
 - persistence duration;
 - hysteresis;
-- evidence pre/post duration.
+- evidence pre/post duration;
+- VLM enable/disable flag;
+- VLM provider/model identifier where used.
 
 ### Testing
+
 Unit-test pure movement/fusion/state logic with synthetic data.
-Do not require GPU for the core test suite.
+
+Do not require GPU, external APIs, or VLM credentials for the core test suite.
 
 ### Verification loop
+
 For every milestone:
+
 1. run focused tests;
 2. run lint/typecheck where configured;
 3. execute at least one realistic integration path;
 4. inspect generated artifact/visual output;
 5. record performance/failures;
-6. do a fresh review against the milestone acceptance criteria.
+6. do a fresh review against milestone acceptance criteria.
 
 ### Data
+
 Do not commit datasets/checkpoints/raw CCTV footage.
+
 Use manifests and environment-configured storage paths.
 
 ### Safety wording
-Code/docs/UI should say “risk,” “warning,” or “detected indicators” rather than claiming a guaranteed future stampede.
 
-## Milestone ordering
+Code/docs/UI should say “risk,” “warning,” “detected indicators,” or “possible incident” rather than claiming a guaranteed future stampede.
 
-1. `milestones/M01_OFFLINE_VIDEO_FOUNDATION.md`
-2. `milestones/M02_TRACKING_AND_CROWD_SIGNALS.md`
-3. `milestones/M03_VIOLENCE_MODEL.md`
-4. `milestones/M04_FUSION_AND_INCIDENT_ENGINE.md`
-5. `milestones/M05_BACKEND_DASHBOARD_ALERTS.md`
-6. `milestones/M06_EVALUATION_AND_DEMO.md`
+## Remaining milestone ordering
 
-M2 and M3 may proceed partially in parallel after M1 only if interfaces are stable.
+1. `milestones/M02_TRACKING_AND_CROWD_SIGNALS.md`
+2. `milestones/M03_VIOLENCE_MODEL.md`
+   - M3A pretrained violence baseline
+   - M3B bounded transfer-learning experiment
+3. `milestones/M04_FUSION_AND_INCIDENT_ENGINE.md`
+4. `milestones/M05_BACKEND_DASHBOARD_ALERTS.md`
+5. `milestones/M06_EVALUATION_AND_DEMO.md`
+
+M3A is required before the normal M4 integration path.
+
+M3B should be attempted for the academic experiment but **must not block M4, M5, or M6** if training is delayed or underperforms. M2 and M3A/M3B may proceed partially in parallel only when shared signal contracts are stable.
 
 ## Definition of project done
 
@@ -129,6 +172,7 @@ video
  -> one evolving incident
  -> severity/lifecycle
  -> evidence capture
+ -> optional VLM evidence explanation
  -> human-review dashboard
  -> stored outcome
  -> reproducible evaluation
@@ -138,13 +182,18 @@ and the final experiment compares the proposed incident-level method against the
 
 ## Final implementation review checklist
 
+- [ ] M1 remains stable and reusable.
 - [ ] Offline and live/stream boundaries are clear.
 - [ ] Detector/tracker are replaceable adapters.
 - [ ] Crowd features are documented and unit tested.
 - [ ] Violence model version/checkpoint/config is traceable.
+- [ ] The system can run with the M3A pretrained violence baseline.
+- [ ] M3B fine-tuning results are separately reproducible.
+- [ ] Missing model evidence is represented explicitly, not as zero risk.
 - [ ] Fusion can replay from stored feature streams.
 - [ ] Incident state is deterministic and deduplicated.
-- [ ] Every alert contains reason codes.
+- [ ] Every alert contains deterministic reason codes.
+- [ ] VLM output is supplementary and never authoritative.
 - [ ] Human action is persisted.
 - [ ] Raw model score is not treated as final incident severity.
 - [ ] False alerts per camera-hour can be computed.

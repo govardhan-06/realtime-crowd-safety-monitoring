@@ -15,9 +15,10 @@ Recorded video / RTSP / webcam
       |            |
       v            v
 Person Detection   Temporal Video Buffer
-      |            |
-      v            v
-   Tracking    Violence Recognizer
+   (YOLO26)        |
+      |            v
+      v       Violence Recognizer
+   ByteTrack      (generic adapter)
       |            |
       v            |
 Crowd Feature      |
@@ -35,27 +36,35 @@ Crowd Feature      |
             v
     Incident State Engine
             |
-       +----+----+
-       |         |
-       v         v
- Evidence     Persistence
- Capture      / Audit
-       |         |
-       +----v----+
-        Backend API
-            |
-            v
-       Web Dashboard
-            |
-            v
-      Human Operator
+       +----+----------------+
+       |                     |
+       v                     v
+ Evidence                Persistence
+ Capture                 / Audit
+       |
+       +----------+
+                  |
+                  v
+         Optional VLM Explainer
+         (non-authoritative)
+                  |
+                  v
+             Backend API
+                  |
+                  v
+             Web Dashboard
+                  |
+                  v
+            Human Operator
 ```
 
-## 2. Architecture principle
+## 2. Architecture principles
 
-Neural models detect **signals**. Deterministic project-specific logic converts those signals into an **incident**.
-
-Do not let model-specific code own incident state.
+1. Neural models detect **signals**.
+2. Deterministic project-specific logic converts those signals into an **incident**.
+3. Model availability/health is explicit.
+4. A missing signal is not silently converted into a normal/zero-risk signal.
+5. The VLM explains already-created incidents; it does not own incident creation, severity, state, or escalation.
 
 ## 3. Recommended repository shape
 
@@ -77,6 +86,7 @@ Adapt this to the existing repository rather than forcing it mechanically.
 │   │   │   ├── crowd/
 │   │   │   ├── violence/
 │   │   │   ├── fusion/
+│   │   │   ├── explanation/
 │   │   │   └── orchestration/
 │   │   └── persistence/
 │   └── tests/
@@ -170,8 +180,9 @@ ViolenceEvidence(
     region_id: str | None,
     clip_start_s: float,
     clip_end_s: float,
-    score: float,
+    score: float | None,
     model_version: str,
+    status: str,  # available | degraded | unavailable
 )
 ```
 
@@ -182,7 +193,8 @@ FusionEvidence(
     source_id: str,
     region_id: str,
     timestamp_s: float,
-    violence_score: float,
+    violence_score: float | None,
+    violence_status: str,
     crowd_features: CrowdFeatureVector,
     persistence_s: float,
     fused_risk: float,
@@ -209,9 +221,24 @@ Incident(
 )
 ```
 
+### IncidentExplanation
+
+```python
+IncidentExplanation(
+    incident_id: UUID,
+    generated_at: datetime,
+    provider: str,
+    model_version: str,
+    text: str,
+    status: str,  # generated | unavailable | failed
+)
+```
+
+`IncidentExplanation` is supplementary. It must not be consumed by the incident state engine.
+
 ## 5. Video scheduling
 
-V1 should use a **single-process deterministic offline runner** before introducing queues.
+V1 should use the completed **single-process deterministic offline runner** from M1 before introducing queues.
 
 Recommended conceptual loop:
 
@@ -222,15 +249,34 @@ decode frame
   -> update crowd feature state
   -> append frame to clip buffer
   -> when violence inference cadence is reached, infer clip
-  -> emit timestamp-aligned signals
+  -> emit timestamp-aligned signals + stage health
   -> update fusion window
   -> update incident state
-  -> persist/export outputs
+  -> capture/persist evidence
+  -> optionally request VLM explanation for created/alerted incident
+  -> export outputs
 ```
 
 Do not introduce Celery/Kafka/Redis purely for architectural appearance.
 
-## 6. Regions of interest
+## 6. Person detection and tracking
+
+Default detector:
+- Ultralytics YOLO26n pretrained checkpoint;
+- class filter restricted to `person`;
+- use YOLO26s only if measured dense-scene misses justify the additional compute.
+
+Default tracker:
+- ByteTrack.
+
+Rules:
+- no detector fine-tuning in M2;
+- no tracker training;
+- detector/tracker remain replaceable adapters;
+- track IDs are camera/source-local and temporary;
+- no cross-camera re-identification.
+
+## 7. Regions of interest
 
 Support rectangular/polygonal configured ROIs.
 
@@ -242,7 +288,7 @@ Use ROIs for:
 
 Pixel-space quantities are acceptable for MVP. Do not claim real-world people-per-square-metre density unless camera geometry is calibrated.
 
-## 7. Tracking-derived movement
+## 8. Tracking-derived movement
 
 Derive movement from temporally smoothed track centres.
 
@@ -263,18 +309,61 @@ Feature implementations must:
 - normalise where possible;
 - be covered by synthetic unit tests.
 
-## 8. Violence inference
+## 9. Violence inference
 
-Default path:
+The rest of the application must depend on a generic binary temporal-video interface, not on one architecture.
+
+### M3A — training-independent delivery baseline
+
+Integrate a ready-made violence-classification checkpoint first.
+
+Initial development candidate:
+- `mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence`
+
+Why:
+- compact VideoMAE-style transformer checkpoint;
+- standard Hugging Face video-classification interface;
+- suitable for unblocking end-to-end integration.
+
+Rules:
+- verify license and label mapping before use;
+- pin checkpoint revision when the integration is stable;
+- benchmark it on the project's own dev clips;
+- do not present the community checkpoint's published metrics as our result;
+- do not let poor M3A accuracy block pipeline engineering.
+
+### M3B — bounded transfer-learning experiment
+
+Default academic training experiment:
 - pretrained X3D-S backbone;
-- replace classification head;
-- fine-tune violent vs non-violent;
+- replace classification head with violent/non-violent head;
+- train head with backbone frozen;
+- optionally unfreeze later blocks only if validation justifies it;
 - fixed clip duration/sample rate defined by config;
-- export score plus model/checkpoint version.
+- record checkpoint, config, split, and metrics.
 
-Do not couple the rest of the system to X3D-specific tensor shapes.
+M3B is important as an experiment, but M4-M6 must remain runnable with M3A if M3B is delayed or underperforms.
 
-## 9. Signal alignment
+## 10. Model/stage health
+
+Each ML stage emits:
+- model/checkpoint identifier;
+- inference timestamp;
+- latency;
+- status: `available`, `degraded`, or `unavailable`;
+- score/output only when valid.
+
+Never convert an unavailable stage into a fabricated zero score.
+
+Fusion may:
+- continue with available evidence;
+- reduce confidence;
+- emit a health-related reason/status;
+- or suppress a decision if configured evidence requirements are not met.
+
+The behavior must be deterministic and testable.
+
+## 11. Signal alignment
 
 Crowd and violence signals run at different cadences.
 
@@ -282,7 +371,7 @@ Create a common timestamp-aligned signal record. Missing values should be explic
 
 Use smoothing only where configured and preserve raw values for evaluation.
 
-## 10. Fusion V1
+## 12. Fusion V1
 
 Start with transparent fusion.
 
@@ -303,9 +392,10 @@ Important:
 - a severe crowd-only incident must be possible;
 - violence should not be mandatory for crowd-risk escalation;
 - brief isolated signals should decay/suppress;
-- spatially related crowd response may increase the severity of a violent event.
+- spatially related crowd response may increase the severity of a violent event;
+- unavailable violence evidence is different from low violence evidence.
 
-## 11. Incident lifecycle
+## 13. Incident lifecycle
 
 Suggested transitions:
 
@@ -323,11 +413,12 @@ Transition policy should consider:
 - minimum persistence;
 - hysteresis;
 - quiet/decay interval;
-- evidence continuity.
+- evidence continuity;
+- required signal availability where configured.
 
 State transitions must be logged.
 
-## 12. Evidence buffer
+## 14. Evidence buffer
 
 Maintain a ring buffer of recent encoded frames or references sufficient for a pre-event clip.
 
@@ -339,7 +430,32 @@ On alert:
 
 Use configurable retention.
 
-## 13. API boundary
+## 15. VLM explanation layer
+
+Purpose:
+- convert already-captured incident evidence into a concise operator-facing explanation.
+
+Inputs may include:
+- evidence clip;
+- selected keyframes;
+- incident time range;
+- deterministic reason codes;
+- selected numerical signal summaries.
+
+Output:
+- short description of observable behavior;
+- optional concise explanation of why the alert warrants review.
+
+Hard boundary:
+- VLM output does not feed back into fusion;
+- VLM output cannot create/close an incident;
+- VLM output cannot alter severity/state;
+- deterministic reason codes remain authoritative;
+- VLM failure must not block alert creation.
+
+Default provider may be Gemini video/image understanding if API credentials are available, but the interface must remain provider-swappable and disabled in unit tests.
+
+## 16. API boundary
 
 Suggested endpoints for the MVP:
 
@@ -355,11 +471,12 @@ POST /incidents/{id}/dismiss
 POST /incidents/{id}/escalate
 GET  /incidents/{id}/timeline
 GET  /incidents/{id}/evidence
+GET  /incidents/{id}/explanation
 ```
 
 For offline development, a `run` can represent processing one input video.
 
-## 14. Persistence
+## 17. Persistence
 
 Prefer PostgreSQL for the final integrated prototype.
 
@@ -371,33 +488,37 @@ Suggested persistent entities:
 - incident;
 - incident event/state transition;
 - evidence artifact;
+- optional incident explanation;
 - operator action;
 - model/config metadata.
 
-## 15. Frontend
+## 18. Frontend
 
 Use Next.js for:
 - source/run status;
 - active/recent incidents;
 - incident detail;
 - evidence;
-- reason codes;
+- deterministic reason codes;
 - signal timeline;
+- optional generated explanation labelled as AI-generated;
 - operator actions.
 
 Do not build the dashboard before the pipeline emits stable incident contracts.
 
-## 16. Observability
+## 19. Observability
 
 At minimum record:
 - frame decode time;
-- detector latency;
-- tracker update latency;
+- detector latency and health;
+- tracker update latency and health;
 - crowd feature latency;
-- violence model latency;
+- violence model latency and health;
 - fusion latency;
+- evidence-generation latency;
+- VLM latency/status when enabled;
 - effective FPS;
 - skipped/dropped frames;
 - incident/alert timestamps.
 
-This is necessary for the final latency analysis.
+This is necessary for final latency and degraded-mode analysis.

@@ -62,24 +62,31 @@ Temporal fusion of person-level violence evidence with local crowd density, flow
 ## 8. Functional requirements
 
 ### FR-1 Video ingestion
+
 - Support local video files in the first implementation.
 - Preserve timestamps/frame index.
 - Add webcam/RTSP only after offline stability.
 - Allow configured frame sampling and resizing.
 
 ### FR-2 Person detection
+
 - Detect `person` instances using a pretrained detector.
+- Default implementation candidate: Ultralytics YOLO26n; evaluate YOLO26s only if dense-scene recall is insufficient.
 - Expose box, confidence, timestamp/frame, and camera/source ID.
-- Detector should be swappable behind an interface.
+- Detector must be swappable behind an interface.
+- No detector fine-tuning is required unless measured dense-scene errors materially limit downstream crowd features.
 
 ### FR-3 Multi-object tracking
+
 - Assign temporary track IDs.
 - Maintain short-lived trajectories.
 - Handle track expiry and re-association through the selected tracker.
 - No cross-camera identity tracking.
 
 ### FR-4 Crowd feature extraction
+
 At minimum compute per configured ROI/zone and/or incident neighbourhood:
+
 - occupancy/person count;
 - normalised density proxy;
 - density change;
@@ -94,24 +101,33 @@ At minimum compute per configured ROI/zone and/or incident neighbourhood:
 Features must be inspectable and exportable.
 
 ### FR-5 Temporal violence recognition
+
 - Run on short rolling video clips/windows.
 - Output a calibrated or calibratable violence/aggression score.
-- Default model candidate: pretrained X3D-S fine-tuned for violent vs non-violent video.
-- Model interface must allow a comparison model later.
+- The violence stage must use a generic model adapter rather than exposing model-specific tensors to the rest of the pipeline.
+- **M3A delivery baseline:** integrate a ready-made pretrained/fine-tuned binary video-classification checkpoint so downstream milestones do not depend on training.
+- **M3B academic experiment:** perform bounded transfer learning with X3D-S pretrained on a large action-recognition corpus, starting with a frozen backbone and trained binary head.
+- Partial backbone unfreezing is allowed only if validation results justify it.
+- Failure or weak performance of M3B must not block M4-M6.
+- Model availability must be explicit; an unavailable model is not equivalent to a zero violence score.
 
 ### FR-6 Temporal buffer
+
 - Maintain a rolling history of crowd and violence signals.
 - Configurable window duration.
 - Preserve raw and smoothed values needed for evaluation.
 
 ### FR-7 Incident association and fusion
+
 - Associate evidence spatially and temporally.
 - Avoid naive “OR” as the proposed method, though implement it as a baseline.
 - Initial proposed method should use deterministic/rule-weighted fusion with persistence.
 - Produce fused risk score, reason codes, and contributing feature values.
 
 ### FR-8 Incident lifecycle
+
 Minimum states:
+
 - `candidate`
 - `active`
 - `escalating`
@@ -122,12 +138,15 @@ Minimum states:
 Transitions must be deterministic/configurable and testable.
 
 ### FR-9 Deduplication
+
 - Repeated positive windows for the same event should update one incident.
 - Do not create a new alert for every inference window.
 - Persist incident start, last update, peak severity, and close time.
 
 ### FR-10 Severity
+
 Minimum levels:
+
 - low
 - medium
 - high
@@ -136,7 +155,9 @@ Minimum levels:
 Severity must be based on multiple evidence signals rather than directly mirroring violence probability.
 
 ### FR-11 Evidence
+
 Each alerted incident should support:
+
 - camera/source ID;
 - incident ID;
 - start/update timestamps;
@@ -148,7 +169,9 @@ Each alerted incident should support:
 - operator disposition.
 
 ### FR-12 Operator dashboard
+
 Minimum MVP pages:
+
 - source/camera list;
 - current incident list;
 - incident detail;
@@ -157,16 +180,28 @@ Minimum MVP pages:
 - acknowledge / dismiss / escalate controls.
 
 ### FR-13 Audit/evaluation export
+
 - Persist machine evidence and operator outcome.
 - Export incident/event records in structured format for offline evaluation.
+
+### FR-14 Explainable alert summary
+
+- After an incident has been created by the deterministic incident engine, the system may send the incident evidence clip and/or selected keyframes plus machine reason codes to a configured vision-language model (VLM).
+- The VLM may produce a concise human-readable description of the visible event and summarize why the alert may matter.
+- VLM output is supplementary evidence for the operator; it must not independently create, close, escalate, or change the severity of an incident.
+- The dashboard must clearly distinguish deterministic system evidence/reason codes from generated explanatory text.
+- If the VLM is disabled, unavailable, times out, or fails, the incident workflow must continue normally.
 
 ## 9. Non-functional requirements
 
 ### NFR-1 Modularity
+
 Detection, tracking, crowd features, violence inference, fusion, incident state, persistence, and UI must be independently testable.
 
 ### NFR-2 Reproducibility
+
 Experiments must record:
+
 - config;
 - model checkpoint identifier;
 - dataset split;
@@ -176,19 +211,26 @@ Experiments must record:
 - metrics.
 
 ### NFR-3 Performance
+
 Prioritise sustained processing and deterministic timing before adding complex models. Record:
+
 - effective FPS;
 - model inference latency;
 - end-to-end alert latency;
 - dropped/skipped frames.
 
 ### NFR-4 Explainability
+
 Every incident escalation must expose machine-readable reason codes and feature values.
 
+A generated VLM explanation may be attached as an additional operator-facing summary, but deterministic reason codes and raw/derived feature values remain the authoritative explanation of why the system changed incident state.
+
 ### NFR-5 Privacy
+
 No facial recognition, demographic inference, or persistent identity tracking.
 
 ### NFR-6 Safety
+
 No autonomous police/fire/medical dispatch. Human review is required before external escalation.
 
 ## 10. Explicitly out of scope
@@ -202,6 +244,8 @@ No autonomous police/fire/medical dispatch. Human review is required before exte
 - Training a person detector from scratch.
 - Training a large video transformer from scratch.
 - One opaque end-to-end “stampede classifier.”
+- Allowing a VLM/LLM to be the authoritative incident detector or severity engine.
+- Blockchain added only for novelty without a concrete evidence-integrity requirement.
 - Autonomous emergency-service dispatch.
 - Audio analysis in the MVP.
 
@@ -219,6 +263,7 @@ The project succeeds if the final prototype:
 8. Stores an auditable incident timeline.
 9. Supports direct experiments against the required baselines.
 10. Demonstrates a better operational trade-off than independent detectors on the curated evaluation suite.
+11. Demonstrates an operator-facing explainable alert path in which generated VLM text is clearly separated from deterministic evidence and does not control incident state.
 
 ## 12. Required baselines
 
