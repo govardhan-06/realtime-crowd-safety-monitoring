@@ -10,7 +10,14 @@ from crowd_safety.config import load_config
 from crowd_safety.runner import _resize_detections, process_video
 from crowd_safety.detection import UltralyticsPersonDetector
 from crowd_safety.tracking import ByteTrackTracker
-from crowd_safety.types import DetectionResult, PersonDetection, StageHealth, TrackObservation, TrackingResult
+from crowd_safety.types import (
+    DetectionResult,
+    PersonDetection,
+    StageHealth,
+    TrackObservation,
+    TrackingResult,
+    ViolenceEvidence,
+)
 
 
 def make_video(path: Path, frame_count: int = 6) -> None:
@@ -179,6 +186,101 @@ polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
         self.assertTrue(feature_rows)
         self.assertEqual(feature_rows[0]["features"][0]["status"], "unavailable")
         self.assertEqual(feature_rows[0]["health"]["status"], "degraded")
+
+    def test_fake_violence_adapter_emits_aligned_timeline_and_provenance(self):
+        class FakeViolenceClassifier:
+            def __init__(self):
+                self.calls = 0
+                self.health = StageHealth("violence", "available", model="fake", device="cpu")
+
+            def infer(self, window):
+                self.calls += 1
+                evidence = ViolenceEvidence(
+                    "camera-1", None, window.start_s, window.end_s, 0.8,
+                    "fake", "test-revision", (("safe", 0), ("unsafe", 1)), "available",
+                    latency_ms=1.25,
+                )
+                self.health = StageHealth(
+                    "violence", "available", model="fake", device="cpu", latency_ms=1.25,
+                )
+                return evidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            config_path = root / "pipeline.toml"
+            make_video(source, frame_count=12)
+            config_path.write_text(
+                f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 3.0
+resize = [32, 24]
+[violence]
+enabled = true
+clip_duration_s = 1.0
+sample_count = 3
+cadence_s = 0.5
+threshold = 0.5
+"""
+            )
+            classifier = FakeViolenceClassifier()
+            result = process_video(load_config(config_path), violence_classifier=classifier)
+            rows = [json.loads(line) for line in result.violence_path.read_text().splitlines()]
+            metadata = json.loads(result.metadata_path.read_text())
+            metrics = json.loads(result.metrics_path.read_text())
+
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertTrue(all(row["evidence"]["status"] == "available" for row in rows))
+        self.assertTrue(all(row["evidence"]["score"] == 0.8 for row in rows))
+        self.assertTrue(all(row["evidence"]["clip_end_s"] - row["evidence"]["clip_start_s"] >= 1.0 for row in rows))
+        self.assertEqual(metrics["violence_calls"], classifier.calls)
+        self.assertEqual(metadata["artifacts"]["violence"], result.violence_path.name)
+        self.assertEqual(metadata["provenance"]["violence_model"], "fake")
+        self.assertEqual(metadata["provenance"]["violence_revision"], "test-revision")
+        self.assertEqual(metadata["provenance"]["violence_label_mapping"], [["safe", 0], ["unsafe", 1]])
+
+    def test_generic_violence_failure_is_degraded_and_run_completes(self):
+        class BrokenViolenceClassifier:
+            def infer(self, window):
+                raise RuntimeError("simulated adapter failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            config_path = root / "pipeline.toml"
+            make_video(source, frame_count=12)
+            config_path.write_text(
+                f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 3.0
+resize = [32, 24]
+[violence]
+enabled = true
+clip_duration_s = 1.0
+sample_count = 3
+cadence_s = 0.5
+threshold = 0.5
+"""
+            )
+            result = process_video(load_config(config_path), violence_classifier=BrokenViolenceClassifier())
+            rows = [json.loads(line) for line in result.violence_path.read_text().splitlines()]
+            metadata = json.loads(result.metadata_path.read_text())
+            metrics = json.loads(result.metrics_path.read_text())
+
+        self.assertTrue(rows)
+        self.assertTrue(all(row["evidence"]["status"] == "degraded" for row in rows))
+        self.assertTrue(all(row["evidence"]["score"] is None for row in rows))
+        self.assertTrue(all(row["health"]["status"] == "degraded" for row in rows))
+        self.assertEqual(metrics["violence_calls"], len(rows))
+        self.assertIsNotNone(metadata["artifacts"].get("metrics"))
 
 
 if __name__ == "__main__":

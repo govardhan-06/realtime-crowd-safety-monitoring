@@ -35,6 +35,20 @@ def resolved_config(config: Any, input_path: Path) -> dict[str, Any]:
                 for roi in config.crowd.rois
             ],
         },
+        "violence": {
+            "enabled": config.violence.enabled,
+            "model": config.violence.model,
+            "revision": config.violence.revision,
+            "clip_duration_s": config.violence.clip_duration_s,
+            "sample_count": config.violence.sample_count,
+            "cadence_s": config.violence.cadence_s,
+            "threshold": config.violence.threshold,
+            "device": config.violence.device,
+            "labels": list(config.violence.labels),
+            "license": config.violence.license,
+            "known_limitations": config.violence.known_limitations,
+            "checkpoint_sha256": config.violence.checkpoint_sha256,
+        },
     }
 
 

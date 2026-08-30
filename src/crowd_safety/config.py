@@ -42,6 +42,22 @@ class CrowdConfig:
 
 
 @dataclass(frozen=True)
+class ViolenceConfig:
+    enabled: bool = False
+    model: str = "mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence"
+    revision: str = "main"
+    clip_duration_s: float = 2.0
+    sample_count: int = 16
+    cadence_s: float = 1.0
+    threshold: float = 0.5
+    device: str = "auto"
+    labels: tuple[str, ...] = ("safe", "unsafe")
+    license: str = ""
+    known_limitations: str = ""
+    checkpoint_sha256: str | None = None
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     input_path: Path
     output_directory: Path
@@ -52,6 +68,7 @@ class PipelineConfig:
     perception: PerceptionConfig = PerceptionConfig()
     tracking: TrackingConfig = TrackingConfig()
     crowd: CrowdConfig = CrowdConfig()
+    violence: ViolenceConfig = ViolenceConfig()
 
     def as_dict(self) -> dict[str, Any]:
         values = asdict(self)
@@ -177,8 +194,9 @@ def load_config(path: str | Path) -> PipelineConfig:
     perception_values = values.get("perception", {})
     tracking_values = values.get("tracking", {})
     crowd_values = values.get("crowd", {})
-    if not all(isinstance(section, dict) for section in (perception_values, tracking_values, crowd_values)):
-        raise ConfigError("[perception], [tracking], and [crowd] must be TOML tables")
+    violence_values = values.get("violence", {})
+    if not all(isinstance(section, dict) for section in (perception_values, tracking_values, crowd_values, violence_values)):
+        raise ConfigError("[perception], [tracking], [crowd], and [violence] must be TOML tables")
     enabled = perception_values.get("enabled", False)
     if not isinstance(enabled, bool):
         raise ConfigError("perception.enabled must be boolean")
@@ -207,6 +225,50 @@ def load_config(path: str | Path) -> PipelineConfig:
     congestion_occupancy = _positive_int(crowd_values.get("congestion_occupancy", 5), "crowd.congestion_occupancy")
     congestion_speed_px_s = _non_negative_number(crowd_values.get("congestion_speed_px_s", 2.0), "crowd.congestion_speed_px_s")
 
+    violence_enabled = violence_values.get("enabled", False)
+    if not isinstance(violence_enabled, bool):
+        raise ConfigError("violence.enabled must be boolean")
+    violence_model = violence_values.get("model", ViolenceConfig.model)
+    if not isinstance(violence_model, str) or not violence_model.strip():
+        raise ConfigError("violence.model must be a non-empty string")
+    violence_revision = violence_values.get("revision", ViolenceConfig.revision)
+    if not isinstance(violence_revision, str) or not violence_revision.strip():
+        raise ConfigError("violence.revision must be a non-empty string")
+    clip_duration_s = _positive_number(violence_values.get("clip_duration_s", 2.0), "violence.clip_duration_s")
+    sample_count = _positive_int(violence_values.get("sample_count", 16), "violence.sample_count", 2)
+    cadence_s = _positive_number(violence_values.get("cadence_s", 1.0), "violence.cadence_s")
+    threshold = violence_values.get("threshold", 0.5)
+    if (
+        not isinstance(threshold, (int, float))
+        or isinstance(threshold, bool)
+        or not math.isfinite(threshold)
+        or not 0 <= threshold <= 1
+    ):
+        raise ConfigError("violence.threshold must be between zero and one")
+    violence_device = violence_values.get("device", "auto")
+    if not isinstance(violence_device, str) or not violence_device.strip():
+        raise ConfigError("violence.device must be a non-empty string")
+    violence_labels = violence_values.get("labels", list(ViolenceConfig.labels))
+    if (
+        not isinstance(violence_labels, list)
+        or len(violence_labels) < 2
+        or any(not isinstance(label, str) or not label.strip() for label in violence_labels)
+    ):
+        raise ConfigError("violence.labels must contain at least two non-empty strings")
+    violence_license = violence_values.get("license", "")
+    if not isinstance(violence_license, str):
+        raise ConfigError("violence.license must be a string")
+    known_limitations = violence_values.get("known_limitations", "")
+    if not isinstance(known_limitations, str):
+        raise ConfigError("violence.known_limitations must be a string")
+    checkpoint_sha256 = violence_values.get("checkpoint_sha256")
+    if checkpoint_sha256 is not None and (
+        not isinstance(checkpoint_sha256, str)
+        or len(checkpoint_sha256) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in checkpoint_sha256)
+    ):
+        raise ConfigError("violence.checkpoint_sha256 must be a 64-character hexadecimal string")
+
     return PipelineConfig(
         input_path=_path(input_values.get("path"), "input.path", config_path.parent),
         output_directory=_path(output_values.get("directory"), "output.directory", config_path.parent),
@@ -230,5 +292,19 @@ def load_config(path: str | Path) -> PipelineConfig:
             congestion_occupancy=congestion_occupancy,
             congestion_speed_px_s=congestion_speed_px_s,
             rois=_roi_values(crowd_values.get("rois"), tuple(resize_value)),
+        ),
+        violence=ViolenceConfig(
+            enabled=violence_enabled,
+            model=violence_model,
+            revision=violence_revision,
+            clip_duration_s=clip_duration_s,
+            sample_count=sample_count,
+            cadence_s=cadence_s,
+            threshold=float(threshold),
+            device=violence_device,
+            labels=tuple(violence_labels),
+            license=violence_license,
+            known_limitations=known_limitations,
+            checkpoint_sha256=checkpoint_sha256,
         ),
     )

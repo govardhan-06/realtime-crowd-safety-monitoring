@@ -137,6 +137,67 @@ resize = [640, 360]
                 with self.assertRaisesRegex(ConfigError, field):
                     load_config(config_path)
 
+    def test_loads_m3_violence_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "pipeline.toml"
+            config_path.write_text(
+                """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[violence]
+enabled = true
+model = "example/model"
+revision = "abc123"
+clip_duration_s = 2.0
+sample_count = 8
+cadence_s = 0.5
+threshold = 0.7
+device = "cpu"
+labels = ["safe", "unsafe"]
+license = "mit"
+known_limitations = "unknown training data"
+checkpoint_sha256 = "ff542a5aa37d4c447584523545996d7c186d87c71b70decae0a773a02f212e5c"
+"""
+            )
+
+            config = load_config(config_path)
+
+        self.assertTrue(config.violence.enabled)
+        self.assertEqual(config.violence.model, "example/model")
+        self.assertEqual(config.violence.revision, "abc123")
+        self.assertEqual(config.violence.sample_count, 8)
+        self.assertEqual(config.violence.threshold, 0.7)
+        self.assertEqual(config.violence.labels, ("safe", "unsafe"))
+        self.assertEqual(config.violence.license, "mit")
+        self.assertEqual(config.violence.checkpoint_sha256[:8], "ff542a5a")
+
+    def test_rejects_invalid_m3_violence_settings(self):
+        for field, value in (
+            ("clip_duration_s", "0"),
+            ("sample_count", "1"),
+            ("cadence_s", "0"),
+            ("threshold", "1.1"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                config_path = Path(directory) / "pipeline.toml"
+                config_path.write_text(
+                    f"""\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[violence]
+{field} = {value}
+"""
+                )
+
+                with self.assertRaisesRegex(ConfigError, field):
+                    load_config(config_path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = []
+violence = ["transformers==4.57.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

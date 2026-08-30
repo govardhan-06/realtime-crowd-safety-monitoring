@@ -5,6 +5,7 @@ from crowd_safety.types import (
     PersonDetection,
     StageHealth,
     TrackObservation,
+    ViolenceEvidence,
 )
 
 
@@ -30,6 +31,22 @@ class TypesTest(unittest.TestCase):
     def test_health_rejects_unknown_status(self):
         with self.assertRaises(ValueError):
             StageHealth("detector", "normal")
+
+    def test_violence_evidence_keeps_model_unavailability_distinct_from_zero(self):
+        evidence = ViolenceEvidence(
+            "camera-1", None, 1.0, 3.0, None, "model", "revision",
+            (("NON_VIOLENCE", 0), ("VIOLENCE", 1)), "unavailable",
+        )
+
+        self.assertIsNone(evidence.score)
+        self.assertEqual(evidence.status, "unavailable")
+
+    def test_available_violence_evidence_requires_a_score(self):
+        with self.assertRaises(ValueError):
+            ViolenceEvidence(
+                "camera-1", None, 1.0, 3.0, None, "model", "revision",
+                (), "available",
+            )
 
 
 if __name__ == "__main__":

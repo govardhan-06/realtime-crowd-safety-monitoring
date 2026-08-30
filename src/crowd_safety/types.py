@@ -97,3 +97,36 @@ class CrowdFeatureRecord:
     congestion: float | None = None
     track_count: int = 0
     detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ViolenceEvidence:
+    source_id: str
+    region_id: str | None
+    clip_start_s: float
+    clip_end_s: float
+    score: float | None
+    model: str
+    revision: str
+    label_mapping: tuple[tuple[str, int], ...]
+    status: StageStatus
+    latency_ms: float | None = None
+    detail: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.source_id.strip() or not self.model.strip() or not self.revision.strip():
+            raise ValueError("source_id, model, and revision must be non-empty")
+        if not math.isfinite(self.clip_start_s) or not math.isfinite(self.clip_end_s) or self.clip_end_s <= self.clip_start_s:
+            raise ValueError("violence clip timestamps must be finite and increasing")
+        if self.status not in {"available", "degraded", "unavailable"}:
+            raise ValueError(f"invalid violence status: {self.status}")
+        if self.score is not None and (not math.isfinite(self.score) or not 0.0 <= self.score <= 1.0):
+            raise ValueError("violence score must be between zero and one")
+        if self.status == "available" and self.score is None:
+            raise ValueError("available violence evidence requires a score")
+        if self.status == "unavailable" and self.score is not None:
+            raise ValueError("unavailable violence evidence cannot include a score")
+        if self.latency_ms is not None and (not math.isfinite(self.latency_ms) or self.latency_ms < 0):
+            raise ValueError("violence latency_ms must be finite and non-negative")
+        if any(not label.strip() or not isinstance(index, int) for label, index in self.label_mapping):
+            raise ValueError("label_mapping must contain non-empty labels and integer indexes")

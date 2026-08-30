@@ -15,8 +15,9 @@ from .crowd_features import compute_crowd_features
 from .detection import PersonDetector, UltralyticsPersonDetector
 from .scheduling import FrameScheduler
 from .tracking import ByteTrackTracker, Tracker
-from .types import CrowdFeatureRecord, PersonDetection, StageHealth, TrackObservation
+from .types import CrowdFeatureRecord, PersonDetection, StageHealth, TrackObservation, ViolenceEvidence
 from .video import VideoReader, VideoWriter
+from .violence import RollingClipBuffer, VideoMAEViolenceClassifier, ViolenceCadence, ViolenceClassifier
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class RunResult:
     metrics_path: Path
     tracks_path: Path | None = None
     features_path: Path | None = None
+    violence_path: Path | None = None
 
 
 def benchmark_video(config: PipelineConfig, input_override: str | Path | None = None) -> Path:
@@ -57,9 +59,11 @@ def benchmark_video(config: PipelineConfig, input_override: str | Path | None = 
                 "detector_seconds",
                 "tracker_seconds",
                 "crowd_feature_seconds",
+                "violence_seconds",
                 "detector_calls",
                 "tracker_calls",
                 "crowd_feature_calls",
+                "violence_calls",
             )},
             "stage_health": metrics["stage_health"],
         }
@@ -114,12 +118,53 @@ def _package_version(name: str) -> str | None:
         return None
 
 
+def _violence_failure_evidence(
+    window,
+    classifier: ViolenceClassifier,
+    config: PipelineConfig,
+    detail: str,
+    latency_ms: float,
+) -> ViolenceEvidence:
+    labels = tuple(getattr(classifier, "label_mapping", ())) or tuple(
+        (label, index) for index, label in enumerate(config.violence.labels)
+    )
+    return ViolenceEvidence(
+        window.packets[0].source_id,
+        None,
+        window.start_s,
+        window.end_s,
+        None,
+        str(getattr(classifier, "model_name", config.violence.model)),
+        str(getattr(classifier, "revision", config.violence.revision)),
+        labels,
+        "degraded",
+        latency_ms,
+        detail,
+    )
+
+
+def _violence_provenance(
+    classifier: ViolenceClassifier,
+    evidence: ViolenceEvidence | None = None,
+) -> dict[str, object]:
+    adapter_provenance = getattr(classifier, "provenance", {})
+    provenance = dict(adapter_provenance) if isinstance(adapter_provenance, dict) else {}
+    if evidence is not None:
+        provenance.update({
+            "model": evidence.model,
+            "revision": evidence.revision,
+            "label_mapping": [list(item) for item in evidence.label_mapping],
+        })
+    return provenance
+
+
 def process_video(
     config: PipelineConfig,
     input_override: str | Path | None = None,
     *,
     detector: PersonDetector | None = None,
     tracker: Tracker | None = None,
+    violence_classifier: ViolenceClassifier | None = None,
 ) -> RunResult:
     input_path = Path(input_override).expanduser().resolve() if input_override else config.input_path
     resolved = resolved_config(config, input_path)
@@ -132,8 +177,10 @@ def process_video(
     metadata_path = run_directory / "metadata.json"
     metrics_path = run_directory / "metrics.json"
     m2_enabled = config.perception.enabled or detector is not None or tracker is not None
+    m3_enabled = config.violence.enabled or violence_classifier is not None
     tracks_path = run_directory / "tracks.jsonl" if m2_enabled else None
     features_path = run_directory / "features.jsonl" if m2_enabled else None
+    violence_path = run_directory / "violence.jsonl" if m3_enabled else None
     started_at = _utc_now()
     start_monotonic = time.perf_counter()
     processed_count = 0
@@ -143,9 +190,11 @@ def process_video(
     detector_seconds = 0.0
     tracker_seconds = 0.0
     feature_seconds = 0.0
+    violence_seconds = 0.0
     detector_calls = 0
     tracker_calls = 0
     feature_calls = 0
+    violence_calls = 0
     detector_health: StageHealth | None = None
     tracker_health: StageHealth | None = None
     feature_health: StageHealth | None = None
@@ -153,6 +202,21 @@ def process_video(
     detection_interval = 1.0 / config.perception.cadence_fps
     last_detection_timestamp: float | None = None
     last_tracks: tuple[TrackObservation, ...] = ()
+    violence_health: StageHealth | None = None
+    violence_provenance: dict[str, object] | None = None
+    clip_buffer = RollingClipBuffer(config.violence.clip_duration_s, config.violence.sample_count) if m3_enabled else None
+    violence_cadence = ViolenceCadence(config.violence.cadence_s) if m3_enabled else None
+    if m3_enabled:
+        violence_classifier = violence_classifier or VideoMAEViolenceClassifier(
+            config.violence.model,
+            config.violence.revision,
+            device=config.violence.device,
+            labels=config.violence.labels,
+            license_name=config.violence.license,
+            known_limitations=config.violence.known_limitations,
+            checkpoint_sha256=config.violence.checkpoint_sha256,
+        )
+        violence_health = getattr(violence_classifier, "health", None)
     if m2_enabled:
         detector = detector or UltralyticsPersonDetector(
             model=config.perception.model,
@@ -171,6 +235,7 @@ def process_video(
 
     tracks_output = tracks_path.open("w") if tracks_path else None
     features_output = features_path.open("w") if features_path else None
+    violence_output = violence_path.open("w") if violence_path else None
     try:
       with frames_path.open("w") as frames_output, VideoReader(input_path) as reader:
         source_metadata = {
@@ -279,6 +344,52 @@ def process_video(
                                 "health": asdict(feature_health),
                                 "features": [asdict(item) for item in features],
                             }, sort_keys=True) + "\n")
+                    if m3_enabled:
+                        clip_buffer.append(tracking_packet)
+                        window = clip_buffer.complete_window()
+                        if window is not None and violence_cadence.is_due(packet.timestamp_s):
+                            inference_start = time.perf_counter()
+                            classifier_health = None
+                            try:
+                                evidence = violence_classifier.infer(window)
+                                if not isinstance(evidence, ViolenceEvidence):
+                                    raise TypeError("violence classifier must return ViolenceEvidence")
+                            except Exception as exc:
+                                evidence = _violence_failure_evidence(
+                                    window,
+                                    violence_classifier,
+                                    config,
+                                    str(exc),
+                                    (time.perf_counter() - inference_start) * 1000.0,
+                                )
+                                classifier_health = StageHealth(
+                                    "violence", "degraded", model=evidence.model,
+                                    device=config.violence.device, latency_ms=evidence.latency_ms,
+                                    detail=evidence.detail,
+                                )
+                            measured_ms = (time.perf_counter() - inference_start) * 1000.0
+                            violence_seconds += measured_ms / 1000.0
+                            violence_calls += 1
+                            violence_provenance = _violence_provenance(violence_classifier, evidence)
+                            violence_health = classifier_health or getattr(violence_classifier, "health", StageHealth(
+                                "violence", evidence.status, model=evidence.model,
+                                device=config.violence.device, latency_ms=evidence.latency_ms,
+                                detail=evidence.detail,
+                            ))
+                            if evidence.status != "available" and violence_health.status == "available":
+                                violence_health = StageHealth(
+                                    "violence", evidence.status, model=evidence.model,
+                                    device=config.violence.device, latency_ms=evidence.latency_ms,
+                                    detail=evidence.detail,
+                                )
+                            if violence_output:
+                                violence_output.write(json.dumps({
+                                    "source_id": packet.source_id,
+                                    "frame_index": packet.frame_index,
+                                    "timestamp_s": packet.timestamp_s,
+                                    "health": asdict(violence_health),
+                                    "evidence": asdict(evidence),
+                                }, sort_keys=True) + "\n")
                     write_start = time.perf_counter()
                     if config.annotation_enabled:
                         image = annotate_frame(
@@ -309,6 +420,8 @@ def process_video(
             tracks_output.close()
         if features_output:
             features_output.close()
+        if violence_output:
+            violence_output.close()
     ended_at = _utc_now()
     write_json(
         run_directory / "config.json",
@@ -331,19 +444,31 @@ def process_video(
                     "tracks": tracks_path.name,
                     "features": features_path.name,
                 } if m2_enabled else {}),
+                **({"violence": violence_path.name} if m3_enabled else {}),
             },
             "stages": {
                 "detector": asdict(detector_health) if detector_health else None,
                 "tracker": asdict(tracker_health) if tracker_health else None,
                 "crowd_features": asdict(feature_health) if feature_health else None,
+                "violence": asdict(violence_health) if violence_health else None,
             },
             "provenance": ({
-                "ultralytics": _package_version("ultralytics"),
-                "lap": _package_version("lap"),
-                "tracker_config": config.tracking.config,
-                "track_buffer": config.tracking.track_buffer,
-                "checkpoint_sha256": detector_health.checkpoint_sha256 if detector_health else None,
-            } if m2_enabled else None),
+                **({
+                    "ultralytics": _package_version("ultralytics"),
+                    "lap": _package_version("lap"),
+                    "tracker_config": config.tracking.config,
+                    "track_buffer": config.tracking.track_buffer,
+                    "checkpoint_sha256": detector_health.checkpoint_sha256 if detector_health else None,
+                } if m2_enabled else {}),
+                **({
+                    "violence_model": violence_provenance.get("model") if violence_provenance else None,
+                    "violence_revision": violence_provenance.get("revision") if violence_provenance else None,
+                    "violence_label_mapping": violence_provenance.get("label_mapping") if violence_provenance else [],
+                    "violence_license": violence_provenance.get("license") if violence_provenance else None,
+                    "violence_known_limitations": violence_provenance.get("known_limitations") if violence_provenance else None,
+                    "violence_checkpoint_sha256": violence_provenance.get("checkpoint_sha256") if violence_provenance else None,
+                } if m3_enabled else {}),
+            } if m2_enabled or m3_enabled else None),
         },
     )
     write_json(
@@ -360,16 +485,22 @@ def process_video(
             "detector_seconds": detector_seconds,
             "tracker_seconds": tracker_seconds,
             "crowd_feature_seconds": feature_seconds,
+            "violence_seconds": violence_seconds,
             "detector_calls": detector_calls,
             "tracker_calls": tracker_calls,
             "crowd_feature_calls": feature_calls,
+            "violence_calls": violence_calls,
             "stage_health": {
                 "detector": asdict(detector_health) if detector_health else {"status": "disabled"},
                 "tracker": asdict(tracker_health) if tracker_health else {"status": "disabled"},
                 "crowd_features": asdict(feature_health) if feature_health else {"status": "disabled"},
+                "violence": asdict(violence_health) if violence_health else {"status": "disabled"},
             },
             "total_seconds": elapsed_seconds,
             "effective_fps": (processed_count + skipped_count) / elapsed_seconds if elapsed_seconds else 0.0,
         },
     )
-    return RunResult(run_id, digest, run_directory, video_path, frames_path, metadata_path, metrics_path, tracks_path, features_path)
+    return RunResult(
+        run_id, digest, run_directory, video_path, frames_path, metadata_path, metrics_path,
+        tracks_path, features_path, violence_path,
+    )
