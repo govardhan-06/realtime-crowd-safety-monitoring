@@ -1,0 +1,15 @@
+[input]
+path = "../../videos/input.mp4"
+
+[output]
+directory = "../../artifacts"
+
+[processing]
+target_fps = 5.0
+resize = [640, 360]
+
+[annotation]
+enabled = true
+
+[logging]
+enabled = true

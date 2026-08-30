@@ -1,2 +1,14 @@
 venv/
 .DS_STORE
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+artifacts/
+outputs/
+models/
+checkpoints/
+videos/
+*.mp4
+*.avi
+*.mov

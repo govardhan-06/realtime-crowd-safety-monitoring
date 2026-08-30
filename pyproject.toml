@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crowd-safety"
+version = "0.1.0"
+description = "Deterministic offline video foundation for crowd-safety monitoring"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python-headless==4.10.0.84",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
