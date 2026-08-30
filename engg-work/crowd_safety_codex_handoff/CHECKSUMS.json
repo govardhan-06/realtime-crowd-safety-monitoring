@@ -1,0 +1,82 @@
+[
+  {
+    "path": "ARCHITECTURE.md",
+    "sha256": "df2905f22f6f23161579fb87e5284892757ad39855d06bd5608acaaf399050f2"
+  },
+  {
+    "path": "CODEX_HANDOFF.md",
+    "sha256": "baa5420ca375d1cd5db5cec4d7b43a2057c3d1f5ea06a4d6e563ef0f27932a27"
+  },
+  {
+    "path": "DATA_AND_MODELS.md",
+    "sha256": "0c07e65b3b9b7c040a990746ea3c14a9333c430db047434365b91e610e5cc3a8"
+  },
+  {
+    "path": "EVALUATION_PLAN.md",
+    "sha256": "fb57634c63ff1b02ddcb3bae0f5be67d30752847582897fabf04813b71debbd4"
+  },
+  {
+    "path": "MANIFEST.md",
+    "sha256": "ef15fcd70a78d220081b5a1d82985c3853b9fdfbe5bf8cfc6eaa722cb0fe5986"
+  },
+  {
+    "path": "PRD.md",
+    "sha256": "520ea543234c618c9f4f996d563fc563c73a944b1eb999dced20c5c8610ab904"
+  },
+  {
+    "path": "README.md",
+    "sha256": "b81752c141b3d5808a4c15d5322cb1a26de4fad4f56564e6f62d8da5d77fca90"
+  },
+  {
+    "path": "RESEARCH_CONTEXT.md",
+    "sha256": "5524edc05c1ba5861accabb16f587c3a2ecfea6536162d786c9178c1304fbce6"
+  },
+  {
+    "path": "RISK_REGISTER.md",
+    "sha256": "b352d5e09dc8bc2384a4b6a2e54c23f1d3d62bd72045224293a7eb4e56c0d591"
+  },
+  {
+    "path": "ROADMAP.md",
+    "sha256": "2a259eb4aca324e804c4fa2464a6982b1a72af001eef4a61f581fd513a8c832a"
+  },
+  {
+    "path": "decisions/ADR-001_MODULAR_PIPELINE.md",
+    "sha256": "bdcf45aa3d1fc2d6058190715eebccfb2bcc5ebc44f83c7e142d710b739989bf"
+  },
+  {
+    "path": "decisions/ADR-002_RULE_FIRST_FUSION.md",
+    "sha256": "f2761ba494cffc1fe1ceca5caf03b79842d392c1f6c70fc9387a8490f26b01ab"
+  },
+  {
+    "path": "decisions/ADR-003_HUMAN_REVIEW.md",
+    "sha256": "b6466f9e90f67ccff76ba1067837fdf9f21e2fb2973a05356d1abc4f8a4f5542"
+  },
+  {
+    "path": "decisions/ADR-004_MODEL_REUSE.md",
+    "sha256": "72defe7f11e483b87c8747bb919f6c2f156a9b86e9e38420ebd5681af52d086f"
+  },
+  {
+    "path": "milestones/M01_OFFLINE_VIDEO_FOUNDATION.md",
+    "sha256": "9ee3fa7296f610c5e932a47d380eabd7cf30b2c9a28a6eb0f996f9c9ce4559a5"
+  },
+  {
+    "path": "milestones/M02_TRACKING_AND_CROWD_SIGNALS.md",
+    "sha256": "29c91499d45dff6cedce4dbd14740d963dbabe2604c54ab678b3ed988e102cf0"
+  },
+  {
+    "path": "milestones/M03_VIOLENCE_MODEL.md",
+    "sha256": "f4b8f9bfadba1404c19de12426b4f9f7225fb38908d1c4d596ccd98ecb51387b"
+  },
+  {
+    "path": "milestones/M04_FUSION_AND_INCIDENT_ENGINE.md",
+    "sha256": "3e1ab4c51700ddd15f303c75038c3f2b46b12a108f2a4f45c9eb7051772a3126"
+  },
+  {
+    "path": "milestones/M05_BACKEND_DASHBOARD_ALERTS.md",
+    "sha256": "2431414c5c884300db022097c4d9e72d0d96618195cb6acade8f42a073b19170"
+  },
+  {
+    "path": "milestones/M06_EVALUATION_AND_DEMO.md",
+    "sha256": "eef7bbf81c97c410b23817118382e16b21db3069b5932649367b494ab670b41d"
+  }
+]
