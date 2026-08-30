@@ -13,3 +13,26 @@ enabled = true
 
 [logging]
 enabled = true
+
+[perception]
+enabled = true
+model = "../../models/yolo26n.pt"
+confidence = 0.25
+cadence_fps = 5.0
+device = "auto"
+person_class_id = 0
+
+[tracking]
+config = "bytetrack.yaml"
+track_buffer = 30
+
+[crowd]
+window_s = 1.0
+min_track_history = 2
+min_speed_px_s = 1.0
+congestion_occupancy = 5
+congestion_speed_px_s = 2.0
+
+[[crowd.rois]]
+name = "development-frame"
+polygon = [[0, 0], [640, 0], [640, 360], [0, 360]]

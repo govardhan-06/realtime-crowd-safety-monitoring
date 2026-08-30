@@ -86,8 +86,8 @@ class VideoWriter:
     def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         self.close()
 
-    def write(self, packet: FramePacket) -> None:
-        image = packet.image
+    def write(self, packet: FramePacket, image: object | None = None) -> None:
+        image = image if image is not None else packet.image
         if (image.shape[1], image.shape[0]) != self.size:
             image = cv2.resize(image, self.size, interpolation=cv2.INTER_AREA)
         if self.annotate:

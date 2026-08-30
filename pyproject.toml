@@ -5,10 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crowd-safety"
 version = "0.1.0"
-description = "Deterministic offline video foundation for crowd-safety monitoring"
+description = "Deterministic offline person-tracking and crowd-signal pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "opencv-python-headless==4.10.0.84",
+    "ultralytics==8.4.135",
+    "lap==0.5.13",
 ]
 
 [project.optional-dependencies]
