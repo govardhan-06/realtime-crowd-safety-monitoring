@@ -50,3 +50,47 @@ labels = ["Non-Violent Incident", "Violent Crime"]
 license = "mit"
 known_limitations = "Trained on a small UCF Crime subset; may not generalize across cameras, lighting, compression, or non-violent high-motion scenes."
 checkpoint_sha256 = "ff542a5aa37d4c447584523545996d7c186d87c71b70decae0a773a02f212e5c"
+
+[fusion]
+strategy = "temporal"
+source_roi_policy = "same-source-configured-rois"
+violence_stale_after_s = 2.0
+smoothing_points = 3
+allow_crowd_only = true
+violence_weight = 0.35
+density_weight = 0.15
+movement_weight = 0.2
+context_weight = 0.15
+persistence_weight = 0.15
+candidate_threshold = 0.35
+active_threshold = 0.5
+escalating_threshold = 0.7
+critical_threshold = 0.85
+persistence_s = 2.0
+hysteresis = 0.05
+decay_s = 2.0
+quiet_period_s = 2.0
+severity_medium = 0.5
+severity_high = 0.7
+severity_critical = 0.85
+
+[fusion.normalization]
+density_delta = [-1.0, 2.0]
+mean_speed_px_s = [0.0, 100.0]
+acceleration_px_s2 = [-100.0, 100.0]
+direction_disorder = [0.0, 1.0]
+convergence = [0.0, 1.0]
+dispersal = [0.0, 1.0]
+counter_flow = [0.0, 1.0]
+congestion = [0.0, 1.0]
+
+[m5]
+evidence_root = "../../artifacts/evidence"
+pre_event_s = 5.0
+post_event_s = 5.0
+retention_s = 86400.0
+database_url_env = "DATABASE_URL"
+vlm_enabled = false
+vlm_provider = "disabled"
+vlm_model = ""
+vlm_timeout_s = 10.0

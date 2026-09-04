@@ -11,6 +11,9 @@ dependencies = [
     "opencv-python-headless==4.10.0.84",
     "ultralytics==8.4.135",
     "lap==0.5.13",
+    "fastapi==0.115.6",
+    "psycopg[binary]==3.2.3",
+    "uvicorn==0.34.0",
 ]
 
 [project.optional-dependencies]
@@ -19,3 +22,6 @@ violence = ["transformers==4.57.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+crowd_safety = ["migrations/*.sql"]

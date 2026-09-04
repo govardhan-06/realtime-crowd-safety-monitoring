@@ -12,3 +12,6 @@ videos/
 *.mp4
 *.avi
 *.mov
+*/node_modules/*
+frontend/.next/
+build/
