@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .fusion import FUSION_VERSION
+
 
 def resolved_config(config: Any, input_path: Path) -> dict[str, Any]:
     return {
@@ -12,6 +14,7 @@ def resolved_config(config: Any, input_path: Path) -> dict[str, Any]:
         "target_fps": config.target_fps,
         "annotation_enabled": config.annotation_enabled,
         "logging_enabled": config.logging_enabled,
+        "fusion_version": FUSION_VERSION,
         "perception": {
             "enabled": config.perception.enabled,
             "model": config.perception.model,
@@ -48,6 +51,43 @@ def resolved_config(config: Any, input_path: Path) -> dict[str, Any]:
             "license": config.violence.license,
             "known_limitations": config.violence.known_limitations,
             "checkpoint_sha256": config.violence.checkpoint_sha256,
+        },
+        "fusion": {
+            "strategy": config.fusion.strategy,
+            "source_roi_policy": config.fusion.source_roi_policy,
+            "violence_stale_after_s": config.fusion.violence_stale_after_s,
+            "smoothing_points": config.fusion.smoothing_points,
+            "allow_crowd_only": config.fusion.allow_crowd_only,
+            "violence_weight": config.fusion.violence_weight,
+            "density_weight": config.fusion.density_weight,
+            "movement_weight": config.fusion.movement_weight,
+            "context_weight": config.fusion.context_weight,
+            "persistence_weight": config.fusion.persistence_weight,
+            "candidate_threshold": config.fusion.candidate_threshold,
+            "active_threshold": config.fusion.active_threshold,
+            "escalating_threshold": config.fusion.escalating_threshold,
+            "critical_threshold": config.fusion.critical_threshold,
+            "persistence_s": config.fusion.persistence_s,
+            "hysteresis": config.fusion.hysteresis,
+            "decay_s": config.fusion.decay_s,
+            "quiet_period_s": config.fusion.quiet_period_s,
+            "severity_medium": config.fusion.severity_medium,
+            "severity_high": config.fusion.severity_high,
+            "severity_critical": config.fusion.severity_critical,
+            "normalization": {
+                name: list(bounds) for name, bounds in vars(config.fusion.normalization).items()
+            },
+        },
+        "m5": {
+            "evidence_root": str(config.m5.evidence_root),
+            "pre_event_s": config.m5.pre_event_s,
+            "post_event_s": config.m5.post_event_s,
+            "retention_s": config.m5.retention_s,
+            "database_url_env": config.m5.database_url_env,
+            "vlm_enabled": config.m5.vlm_enabled,
+            "vlm_provider": config.m5.vlm_provider,
+            "vlm_model": config.m5.vlm_model,
+            "vlm_timeout_s": config.m5.vlm_timeout_s,
         },
     }
 

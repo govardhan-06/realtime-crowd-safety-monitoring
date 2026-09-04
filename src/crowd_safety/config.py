@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 import math
 from pathlib import Path
+import re
 import tomllib
 from typing import Any
 
@@ -58,6 +59,57 @@ class ViolenceConfig:
 
 
 @dataclass(frozen=True)
+class FusionNormalizationConfig:
+    density_delta: tuple[float, float] = (-1.0, 2.0)
+    mean_speed_px_s: tuple[float, float] = (0.0, 100.0)
+    acceleration_px_s2: tuple[float, float] = (-100.0, 100.0)
+    direction_disorder: tuple[float, float] = (0.0, 1.0)
+    convergence: tuple[float, float] = (0.0, 1.0)
+    dispersal: tuple[float, float] = (0.0, 1.0)
+    counter_flow: tuple[float, float] = (0.0, 1.0)
+    congestion: tuple[float, float] = (0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class FusionConfig:
+    strategy: str = "temporal"
+    source_roi_policy: str = "same-source-configured-rois"
+    violence_stale_after_s: float = 2.0
+    smoothing_points: int = 3
+    allow_crowd_only: bool = True
+    violence_weight: float = 0.35
+    density_weight: float = 0.15
+    movement_weight: float = 0.2
+    context_weight: float = 0.15
+    persistence_weight: float = 0.15
+    candidate_threshold: float = 0.35
+    active_threshold: float = 0.5
+    escalating_threshold: float = 0.7
+    critical_threshold: float = 0.85
+    persistence_s: float = 2.0
+    hysteresis: float = 0.05
+    decay_s: float = 2.0
+    quiet_period_s: float = 2.0
+    severity_medium: float = 0.5
+    severity_high: float = 0.7
+    severity_critical: float = 0.85
+    normalization: FusionNormalizationConfig = FusionNormalizationConfig()
+
+
+@dataclass(frozen=True)
+class M5Config:
+    evidence_root: Path = Path("evidence")
+    pre_event_s: float = 5.0
+    post_event_s: float = 5.0
+    retention_s: float = 86400.0
+    database_url_env: str = "DATABASE_URL"
+    vlm_enabled: bool = False
+    vlm_provider: str = "disabled"
+    vlm_model: str = ""
+    vlm_timeout_s: float = 10.0
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     input_path: Path
     output_directory: Path
@@ -69,11 +121,14 @@ class PipelineConfig:
     tracking: TrackingConfig = TrackingConfig()
     crowd: CrowdConfig = CrowdConfig()
     violence: ViolenceConfig = ViolenceConfig()
+    fusion: FusionConfig = FusionConfig()
+    m5: M5Config = M5Config()
 
     def as_dict(self) -> dict[str, Any]:
         values = asdict(self)
         values["input_path"] = str(self.input_path)
         values["output_directory"] = str(self.output_directory)
+        values["m5"]["evidence_root"] = str(self.m5.evidence_root)
         return values
 
 
@@ -269,6 +324,91 @@ def load_config(path: str | Path) -> PipelineConfig:
     ):
         raise ConfigError("violence.checkpoint_sha256 must be a 64-character hexadecimal string")
 
+    fusion_values = values.get("fusion", {})
+    if not isinstance(fusion_values, dict):
+        raise ConfigError("[fusion] must be a TOML table")
+    strategy = fusion_values.get("strategy", "temporal")
+    strategies = {"violence-only", "crowd-only", "naive-or", "rule-fusion", "temporal"}
+    if not isinstance(strategy, str) or strategy not in strategies:
+        raise ConfigError(f"fusion.strategy must be one of {sorted(strategies)}")
+    source_roi_policy = fusion_values.get("source_roi_policy", "same-source-configured-rois")
+    if source_roi_policy != "same-source-configured-rois":
+        raise ConfigError("fusion.source_roi_policy must be same-source-configured-rois")
+    violence_stale_after_s = _positive_number(
+        fusion_values.get("violence_stale_after_s", 2.0), "fusion.violence_stale_after_s"
+    )
+    smoothing_points = _positive_int(fusion_values.get("smoothing_points", 3), "fusion.smoothing_points")
+    allow_crowd_only = fusion_values.get("allow_crowd_only", True)
+    if not isinstance(allow_crowd_only, bool):
+        raise ConfigError("fusion.allow_crowd_only must be boolean")
+    weight_names = ("violence_weight", "density_weight", "movement_weight", "context_weight", "persistence_weight")
+    weights = {}
+    for name in weight_names:
+        weights[name] = _non_negative_number(fusion_values.get(name, getattr(FusionConfig, name)), f"fusion.{name}")
+    if sum(weights.values()) <= 0:
+        raise ConfigError("fusion weights must have a positive sum")
+    threshold_names = ("candidate_threshold", "active_threshold", "escalating_threshold", "critical_threshold")
+    thresholds = {name: fusion_values.get(name, getattr(FusionConfig, name)) for name in threshold_names}
+    for name, value in thresholds.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= 1:
+            raise ConfigError(f"fusion.{name} must be between zero and one")
+        thresholds[name] = float(value)
+    if not thresholds["candidate_threshold"] <= thresholds["active_threshold"] <= thresholds["escalating_threshold"] <= thresholds["critical_threshold"]:
+        raise ConfigError("fusion lifecycle thresholds must be ordered")
+    persistence_s = _positive_number(fusion_values.get("persistence_s", 2.0), "fusion.persistence_s")
+    hysteresis = _non_negative_number(fusion_values.get("hysteresis", 0.05), "fusion.hysteresis")
+    if hysteresis > 1.0:
+        raise ConfigError("fusion.hysteresis must not exceed one")
+    decay_s = _positive_number(fusion_values.get("decay_s", 2.0), "fusion.decay_s")
+    quiet_period_s = _positive_number(fusion_values.get("quiet_period_s", 2.0), "fusion.quiet_period_s")
+    severity_names = ("severity_medium", "severity_high", "severity_critical")
+    severities = {name: fusion_values.get(name, getattr(FusionConfig, name)) for name in severity_names}
+    for name, value in severities.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= 1:
+            raise ConfigError(f"fusion.{name} must be between zero and one")
+        severities[name] = float(value)
+    if not severities["severity_medium"] <= severities["severity_high"] <= severities["severity_critical"]:
+        raise ConfigError("fusion severity boundaries must be ordered")
+    normalization_values = fusion_values.get("normalization", {})
+    if not isinstance(normalization_values, dict):
+        raise ConfigError("[fusion.normalization] must be a TOML table")
+    normalization = {}
+    for name in FusionNormalizationConfig.__dataclass_fields__:
+        value = normalization_values.get(name, getattr(FusionNormalizationConfig, name))
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            raise ConfigError(f"fusion.normalization.{name} must contain two numbers")
+        lower, upper = value
+        if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item) for item in value) or lower >= upper:
+            raise ConfigError(f"fusion.normalization.{name} must contain finite ordered bounds")
+        normalization[name] = (float(lower), float(upper))
+
+    m5_values = values.get("m5", {})
+    if not isinstance(m5_values, dict):
+        raise ConfigError("[m5] must be a TOML table")
+    evidence_root_value = m5_values.get("evidence_root")
+    if evidence_root_value is None:
+        evidence_root = _path(output_values.get("directory"), "output.directory", config_path.parent) / "evidence"
+    else:
+        evidence_root = _path(evidence_root_value, "m5.evidence_root", config_path.parent)
+    pre_event_s = _positive_number(m5_values.get("pre_event_s", 5.0), "m5.pre_event_s")
+    post_event_s = _positive_number(m5_values.get("post_event_s", 5.0), "m5.post_event_s")
+    retention_s = _positive_number(m5_values.get("retention_s", 86400.0), "m5.retention_s")
+    database_url_env = m5_values.get("database_url_env", "DATABASE_URL")
+    if not isinstance(database_url_env, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database_url_env) is None:
+        raise ConfigError("m5.database_url_env must be a valid environment variable name")
+    vlm_enabled = m5_values.get("vlm_enabled", False)
+    if not isinstance(vlm_enabled, bool):
+        raise ConfigError("m5.vlm_enabled must be boolean")
+    vlm_provider = m5_values.get("vlm_provider", "disabled")
+    if vlm_provider not in {"disabled", "fake", "gemini"}:
+        raise ConfigError("m5.vlm_provider must be disabled, fake, or gemini")
+    if vlm_enabled and vlm_provider == "disabled":
+        raise ConfigError("m5.vlm_enabled requires a configured provider")
+    vlm_model = m5_values.get("vlm_model", "")
+    if not isinstance(vlm_model, str) or (vlm_enabled and not vlm_model.strip()):
+        raise ConfigError("m5.vlm_model must be a non-empty string when VLM is enabled")
+    vlm_timeout_s = _positive_number(m5_values.get("vlm_timeout_s", 10.0), "m5.vlm_timeout_s")
+
     return PipelineConfig(
         input_path=_path(input_values.get("path"), "input.path", config_path.parent),
         output_directory=_path(output_values.get("directory"), "output.directory", config_path.parent),
@@ -306,5 +446,31 @@ def load_config(path: str | Path) -> PipelineConfig:
             license=violence_license,
             known_limitations=known_limitations,
             checkpoint_sha256=checkpoint_sha256,
+        ),
+        fusion=FusionConfig(
+            strategy=strategy,
+            source_roi_policy=source_roi_policy,
+            violence_stale_after_s=violence_stale_after_s,
+            smoothing_points=smoothing_points,
+            allow_crowd_only=allow_crowd_only,
+            **weights,
+            **thresholds,
+            persistence_s=persistence_s,
+            hysteresis=hysteresis,
+            decay_s=decay_s,
+            quiet_period_s=quiet_period_s,
+            **severities,
+            normalization=FusionNormalizationConfig(**normalization),
+        ),
+        m5=M5Config(
+            evidence_root=evidence_root,
+            pre_event_s=pre_event_s,
+            post_event_s=post_event_s,
+            retention_s=retention_s,
+            database_url_env=database_url_env,
+            vlm_enabled=vlm_enabled,
+            vlm_provider=vlm_provider,
+            vlm_model=vlm_model,
+            vlm_timeout_s=vlm_timeout_s,
         ),
     )

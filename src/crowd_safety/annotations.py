@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from .config import ROIConfig
-from .types import CrowdFeatureRecord, TrackObservation
+from .types import CrowdFeatureRecord, TrackObservation, ViolenceEvidence
 
 
 def annotate_frame(
@@ -16,6 +16,7 @@ def annotate_frame(
     histories: tuple[tuple[TrackObservation, ...], ...] = (),
     rois: tuple[ROIConfig, ...] = (),
     features: tuple[CrowdFeatureRecord, ...] = (),
+    violence: ViolenceEvidence | None = None,
 ) -> Any:
     annotated = image.copy()
     cv2.putText(
@@ -44,4 +45,19 @@ def annotate_frame(
         status = feature.status
         text = f"{feature.roi_name}: n={feature.occupancy if feature.occupancy is not None else '-'} {status}"
         cv2.putText(annotated, text, (8, 38 + index * 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    if violence is None:
+        violence_text = "violence: warming-up"
+    elif violence.score is None:
+        violence_text = f"violence: {violence.status}"
+    else:
+        violence_text = f"violence: {violence.status} score={violence.score:.2f}"
+    cv2.putText(
+        annotated,
+        violence_text,
+        (8, 38 + len(features) * 16),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.4,
+        (255, 255, 255),
+        1,
+    )
     return annotated
