@@ -7,6 +7,9 @@ from pathlib import Path
 
 import cv2
 
+from crowd_safety.artifacts import config_hash, resolved_config
+from crowd_safety.config import load_config
+from crowd_safety.replay import replay_run
 from tests.support.synthetic_video import create_video
 
 
@@ -28,7 +31,6 @@ target_fps = 3.0
 resize = [16, 12]
 """
             )
-
             processed = subprocess.run(
                 [sys.executable, "-m", "crowd_safety", "process-video", "--config", str(config)],
                 check=True,
@@ -106,6 +108,55 @@ resize = [16, 12]
         self.assertEqual(values["status"], "failed")
         self.assertEqual(values["error_type"], "VideoIOError")
         self.assertIn("could not open video input", values["error"])
+
+    def test_replay_command_runs_all_strategies_from_stored_signals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_directory = root / "run"
+            run_directory.mkdir()
+            config = root / "pipeline.toml"
+            config.write_text(
+                f"""\
+[input]
+path = "{root / 'unused.mp4'}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+resize = [16, 12]
+[fusion]
+smoothing_points = 1
+"""
+            )
+            loaded_config = load_config(config)
+            values = resolved_config(loaded_config, loaded_config.input_path)
+            (run_directory / "config.json").write_text(json.dumps({
+                "config_hash": config_hash(values), "config": values,
+            }))
+            (run_directory / "features.jsonl").write_text(json.dumps({
+                "features": [{
+                    "source_id": "camera-1", "roi_name": "zone", "timestamp_s": 1.0,
+                    "status": "available", "occupancy": 4,
+                }],
+            }) + "\n")
+            (run_directory / "violence.jsonl").write_text(json.dumps({
+                "evidence": {
+                    "source_id": "camera-1", "region_id": None, "clip_start_s": 0.0,
+                    "clip_end_s": 1.0, "score": 0.9, "model": "fake", "revision": "rev",
+                    "label_mapping": [["safe", 0], ["unsafe", 1]], "status": "available",
+                },
+            }) + "\n")
+            result = subprocess.run(
+                [sys.executable, "-m", "crowd_safety", "replay", "--run-directory", str(run_directory), "--config", str(config)],
+                check=True, capture_output=True, text=True,
+            )
+            replay_directory = Path(result.stdout.strip())
+            strategies = ("violence-only", "crowd-only", "naive-or", "rule-fusion", "temporal")
+            self.assertEqual({path.name for path in replay_directory.iterdir()}, {*strategies, "metadata.json"})
+            self.assertTrue((replay_directory / "temporal" / "fusion.jsonl").read_text())
+            changed_config = root / "changed.toml"
+            changed_config.write_text(config.read_text().replace("smoothing_points = 1", "smoothing_points = 2"))
+            with self.assertRaisesRegex(ValueError, "config"):
+                replay_run(run_directory, load_config(changed_config))
 
 
 if __name__ == "__main__":

@@ -31,6 +31,63 @@ resize = [640, 360]
         self.assertEqual(config.resize, (640, 360))
         self.assertTrue(config.annotation_enabled)
         self.assertTrue(config.logging_enabled)
+        self.assertEqual(config.m5.evidence_root, base / "artifacts" / "evidence")
+        self.assertFalse(config.m5.vlm_enabled)
+        self.assertEqual(config.m5.database_url_env, "DATABASE_URL")
+
+    def test_loads_m5_storage_and_explanation_settings_without_a_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "pipeline.toml"
+            config_path.write_text(
+                """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[m5]
+evidence_root = "retained-evidence"
+pre_event_s = 4.0
+post_event_s = 6.0
+retention_s = 3600.0
+database_url_env = "LOCAL_DATABASE_URL"
+vlm_enabled = false
+vlm_provider = "disabled"
+vlm_model = ""
+vlm_timeout_s = 8.0
+"""
+            )
+
+            config = load_config(config_path)
+
+        self.assertEqual(config.m5.evidence_root, Path(directory).resolve() / "retained-evidence")
+        self.assertEqual(config.m5.pre_event_s, 4.0)
+        self.assertEqual(config.m5.database_url_env, "LOCAL_DATABASE_URL")
+        self.assertEqual(config.m5.vlm_provider, "disabled")
+
+    def test_rejects_invalid_m5_settings(self):
+        for fragment, field in (
+            ("pre_event_s = 0\n", "m5.pre_event_s"),
+            ("retention_s = -1\n", "m5.retention_s"),
+            ("database_url_env = \"not-valid\"\n", "database_url_env"),
+            ("vlm_provider = \"unknown\"\n", "vlm_provider"),
+            ("vlm_timeout_s = 0\n", "vlm_timeout_s"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                config_path = Path(directory) / "pipeline.toml"
+                config_path.write_text(
+                    f"""\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[m5]
+{fragment}
+"""
+                )
+                with self.assertRaisesRegex(ConfigError, field):
+                    load_config(config_path)
 
     def test_rejects_invalid_processing_values(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -195,6 +252,55 @@ directory = "artifacts"
 """
                 )
 
+                with self.assertRaisesRegex(ConfigError, field):
+                    load_config(config_path)
+
+    def test_loads_fusion_settings_and_rejects_invalid_policy_or_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "pipeline.toml"
+            config_path.write_text(
+                """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[fusion]
+strategy = "temporal"
+allow_crowd_only = false
+smoothing_points = 4
+candidate_threshold = 0.2
+active_threshold = 0.4
+escalating_threshold = 0.7
+critical_threshold = 0.9
+[fusion.normalization]
+density_delta = [-2.0, 2.0]
+"""
+            )
+            config = load_config(config_path)
+            self.assertEqual(config.fusion.strategy, "temporal")
+            self.assertFalse(config.fusion.allow_crowd_only)
+            self.assertEqual(config.fusion.smoothing_points, 4)
+            self.assertEqual(config.fusion.normalization.density_delta, (-2.0, 2.0))
+
+        for fragment, field in (
+            ('strategy = "unknown"\n', "fusion.strategy"),
+            ("candidate_threshold = 0.8\nactive_threshold = 0.2\n", "lifecycle thresholds"),
+            ("violence_weight = nan\n", "violence_weight"),
+            ("[fusion.normalization]\ndensity_delta = [1.0, 1.0]\n", "density_delta"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                config_path = Path(directory) / "pipeline.toml"
+                config_path.write_text(
+                    f"""\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[fusion]
+{fragment}"""
+                )
                 with self.assertRaisesRegex(ConfigError, field):
                     load_config(config_path)
 

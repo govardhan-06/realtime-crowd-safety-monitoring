@@ -6,6 +6,9 @@ from crowd_safety.types import (
     StageHealth,
     TrackObservation,
     ViolenceEvidence,
+    EvidenceManifest,
+    EvidenceReference,
+    IncidentExplanation,
 )
 
 
@@ -47,6 +50,19 @@ class TypesTest(unittest.TestCase):
                 "camera-1", None, 1.0, 3.0, None, "model", "revision",
                 (), "available",
             )
+
+    def test_m5_records_reject_invalid_paths_and_secret_metadata(self):
+        reference = EvidenceReference("snapshot", "incidents/i1/snapshot.jpg", 1.0, 1.0, "available")
+        manifest = EvidenceManifest(
+            "run-1", "camera-1", "i1", 1.0, 2.0, 3.0, 4.0,
+            ("violence",), ({"timestamp_s": 1.0, "fused_risk": 0.8},),
+            {"violence": {"status": "available"}}, (reference,),
+        )
+        self.assertEqual(manifest.artifacts[0].relative_path, "incidents/i1/snapshot.jpg")
+        with self.assertRaises(ValueError):
+            EvidenceReference("snapshot", "../outside.jpg", 1.0, 1.0, "available")
+        with self.assertRaises(ValueError):
+            IncidentExplanation("i1", "generated", "fake", "model", "token=secret")
 
 
 if __name__ == "__main__":

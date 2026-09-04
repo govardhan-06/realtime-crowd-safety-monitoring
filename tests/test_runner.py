@@ -2,12 +2,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from crowd_safety.config import load_config
+from crowd_safety.annotations import annotate_frame
 from crowd_safety.runner import _resize_detections, process_video
+from crowd_safety.replay import replay_run
 from crowd_safety.detection import UltralyticsPersonDetector
 from crowd_safety.tracking import ByteTrackTracker
 from crowd_safety.types import (
@@ -30,6 +33,18 @@ def make_video(path: Path, frame_count: int = 6) -> None:
 
 
 class RunnerTest(unittest.TestCase):
+    def test_overlay_shows_violence_status_separately_from_feature_status(self):
+        evidence = ViolenceEvidence(
+            "camera-1", None, 1.0, 3.0, 0.65, "fake", "revision",
+            (("safe", 0), ("unsafe", 1)), "available",
+        )
+
+        with patch("crowd_safety.annotations.cv2.putText") as put_text:
+            annotate_frame(np.zeros((24, 32, 3), dtype=np.uint8), 1, 1.0, violence=evidence)
+
+        texts = [call.args[1] for call in put_text.call_args_list]
+        self.assertIn("violence: available score=0.65", texts)
+
     def test_perception_boxes_are_transformed_to_resized_roi_coordinates(self):
         detection = PersonDetection("camera-1", 0, 0.0, (10, 20, 30, 40), 0.9)
 
@@ -281,6 +296,96 @@ threshold = 0.5
         self.assertTrue(all(row["health"]["status"] == "degraded" for row in rows))
         self.assertEqual(metrics["violence_calls"], len(rows))
         self.assertIsNotNone(metadata["artifacts"].get("metrics"))
+
+    def test_m4_fake_adapters_emit_fusion_incident_and_transition_artifacts(self):
+        class FakeDetector:
+            def detect(self, packet):
+                return DetectionResult(
+                    (PersonDetection(packet.source_id, packet.frame_index, packet.timestamp_s, (8, 8, 18, 20), 0.9),),
+                    StageHealth("detector", "available", model="fake"),
+                )
+
+        class FakeTracker:
+            def update(self, packet, detections=()):
+                observation = TrackObservation(
+                    packet.source_id, 1, packet.frame_index, packet.timestamp_s,
+                    (10 + packet.frame_index * 2, 14), (5, 8, 15, 20), 0.9,
+                )
+                return TrackingResult((observation,), StageHealth("tracker", "available", model="fake"))
+
+        class FakeViolenceClassifier:
+            health = StageHealth("violence", "available", model="fake")
+
+            def infer(self, window):
+                return ViolenceEvidence(
+                    window.packets[0].source_id, None, window.start_s, window.end_s, 0.95,
+                    "fake", "rev", (("safe", 0), ("unsafe", 1)), "available",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            config_path = root / "pipeline.toml"
+            make_video(source, frame_count=12)
+            config_path.write_text(
+                f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 3.0
+resize = [32, 24]
+[perception]
+enabled = true
+cadence_fps = 3.0
+[crowd]
+window_s = 1.0
+min_track_history = 2
+[[crowd.rois]]
+name = "zone"
+polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
+[violence]
+enabled = true
+clip_duration_s = 1.0
+sample_count = 3
+cadence_s = 0.5
+[fusion]
+strategy = "temporal"
+persistence_s = 0.5
+candidate_threshold = 0.2
+active_threshold = 0.3
+escalating_threshold = 0.6
+critical_threshold = 0.8
+severity_medium = 0.3
+severity_high = 0.6
+severity_critical = 0.8
+"""
+            )
+            result = process_video(
+                load_config(config_path), detector=FakeDetector(), tracker=FakeTracker(),
+                violence_classifier=FakeViolenceClassifier(),
+            )
+            fusion = [json.loads(line) for line in result.fusion_path.read_text().splitlines()]
+            incidents = [json.loads(line) for line in result.incidents_path.read_text().splitlines()]
+            transitions = [json.loads(line) for line in result.transitions_path.read_text().splitlines()]
+            metadata = json.loads(result.metadata_path.read_text())
+            metrics = json.loads(result.metrics_path.read_text())
+            replay_run(result.run_directory, load_config(config_path), ("temporal",))
+            replay_fusion = (result.run_directory / "replay" / "temporal" / "fusion.jsonl").read_text()
+            replay_incidents = (result.run_directory / "replay" / "temporal" / "incidents.jsonl").read_text()
+            generated_fusion = result.fusion_path.read_text()
+            generated_incidents = result.incidents_path.read_text()
+
+        self.assertTrue(fusion)
+        self.assertTrue(incidents)
+        self.assertEqual(len({item["incident_id"] for item in incidents}), 1)
+        self.assertIn("active", {item["to_state"] for item in transitions})
+        self.assertEqual(metadata["artifacts"]["fusion"], result.fusion_path.name)
+        self.assertEqual(metadata["artifacts"]["incidents"], result.incidents_path.name)
+        self.assertEqual(metrics["fusion_calls"], len(fusion))
+        self.assertEqual(replay_fusion, generated_fusion)
+        self.assertEqual(replay_incidents, generated_incidents)
 
 
 if __name__ == "__main__":
