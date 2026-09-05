@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/crowd-safety/vlm-review.schema.json",
+  "title": "Non-authoritative VLM explanation review",
+  "type": "object",
+  "required": ["schema_version", "incident_id", "status", "provider", "grounded", "contradicts_reasons", "unsupported_details", "latency_ms", "reviewer_note"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "incident_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["generated", "disabled", "unavailable", "failed"]},
+    "provider": {"type": "string", "minLength": 1},
+    "model": {"type": "string"},
+    "text": {"type": "string"},
+    "grounded": {"type": ["boolean", "null"]},
+    "contradicts_reasons": {"type": ["boolean", "null"]},
+    "unsupported_details": {"type": "array", "items": {"type": "string"}},
+    "latency_ms": {"type": ["number", "null"], "minimum": 0},
+    "reviewer_note": {"type": "string"}
+  },
+  "additionalProperties": false
+}

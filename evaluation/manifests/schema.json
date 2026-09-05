@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/crowd-safety/evaluation-manifest.schema.json",
+  "title": "Crowd safety evaluation manifest",
+  "type": "object",
+  "required": ["schema_version", "evaluation_id", "entries", "matching"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "evaluation_id": {"type": "string", "minLength": 1},
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "matching": {
+      "type": "object",
+      "required": ["temporal_tolerance_s", "require_temporal_overlap"],
+      "properties": {
+        "temporal_tolerance_s": {"type": "number", "minimum": 0},
+        "require_temporal_overlap": {"type": "boolean"},
+        "actionable_state": {"const": "active"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["video_id", "media", "split", "dataset", "source_id", "session_id", "scenario", "duration_s", "expected_alert", "events", "tags"],
+      "properties": {
+        "video_id": {"type": "string", "minLength": 1},
+        "media": {
+          "type": "object",
+          "required": ["relative_path"],
+          "properties": {"relative_path": {"type": "string", "minLength": 1}},
+          "additionalProperties": false
+        },
+        "split": {"enum": ["train", "validation", "test"]},
+        "dataset": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "session_id": {"type": "string", "minLength": 1},
+        "scenario": {"enum": ["normal", "dense-crowd", "staged-violence", "combined-risk", "hard-negative"]},
+        "duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "expected_alert": {"type": "boolean"},
+        "model_label": {"type": ["string", "null"], "enum": ["normal", "violent", null]},
+        "events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/event"}
+        },
+        "tags": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["dense", "lighting", "occlusion", "camera-motion", "hard-negative", "staged"]},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["event_id", "label", "onset_s", "end_s", "expected_alert", "severity"],
+      "properties": {
+        "event_id": {"type": "string", "minLength": 1},
+        "label": {"enum": ["crowd-risk", "violence", "combined-risk"]},
+        "onset_s": {"type": "number", "minimum": 0},
+        "end_s": {"type": "number", "exclusiveMinimum": 0},
+        "expected_alert": {"type": "boolean"},
+        "severity": {"enum": ["low", "medium", "high", "critical"]},
+        "source_id": {"type": ["string", "null"]},
+        "roi": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

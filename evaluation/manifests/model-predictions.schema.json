@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/crowd-safety/model-predictions.schema.json",
+  "title": "Held-out violence model prediction export",
+  "type": "object",
+  "required": ["schema_version", "model", "checkpoint", "split", "threshold", "predictions"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "model": {"enum": ["M3A", "M3B"]},
+    "checkpoint": {"type": "string", "minLength": 1},
+    "split": {"const": "test"},
+    "threshold": {"type": "number", "minimum": 0, "maximum": 1},
+    "predictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["video_id", "score", "label", "latency_ms", "status"],
+        "properties": {
+          "video_id": {"type": "string", "minLength": 1},
+          "score": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+          "label": {"type": ["string", "null"], "enum": ["normal", "violent", null]},
+          "latency_ms": {"type": ["number", "null"], "minimum": 0},
+          "status": {"enum": ["available", "degraded", "unavailable"]},
+          "detail": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

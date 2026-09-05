@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "evaluation_id": "drive-draft",
+  "matching": {
+    "temporal_tolerance_s": 1.0,
+    "require_temporal_overlap": true,
+    "actionable_state": "active"
+  },
+  "entries": [
+    {
+      "video_id": "xd-001",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/A.Beautiful.Mind.2001__#00-45-40_00-47-30_label_A.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-001",
+      "session_id": "xd-session-001",
+      "scenario": "normal",
+      "duration_s": 5379.136,
+      "expected_alert": false,
+      "model_label": "normal",
+      "events": [],
+      "tags": [
+        "hard-negative"
+      ]
+    },
+    {
+      "video_id": "xd-002",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/Be.with.You.2018__#00-37-40_00-40-31_label_A.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-002",
+      "session_id": "xd-session-002",
+      "scenario": "normal",
+      "duration_s": 5665.056,
+      "expected_alert": false,
+      "model_label": "normal",
+      "events": [],
+      "tags": [
+        "hard-negative"
+      ]
+    },
+    {
+      "video_id": "xd-003",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/Before.Sunrise.1995__#00-01-45_00-02-50_label_A.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-003",
+      "session_id": "xd-session-003",
+      "scenario": "normal",
+      "duration_s": 5960.129,
+      "expected_alert": false,
+      "model_label": "normal",
+      "events": [],
+      "tags": [
+        "hard-negative"
+      ]
+    },
+    {
+      "video_id": "xd-004",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/Bad.Boys.1995__#01-07-01_01-08-13_label_B1-0-0.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-004",
+      "session_id": "xd-session-004",
+      "scenario": "staged-violence",
+      "duration_s": 3109.186,
+      "expected_alert": false,
+      "model_label": "violent",
+      "events": [],
+      "tags": [
+        "staged"
+      ]
+    },
+    {
+      "video_id": "xd-005",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/Desperado.1995__#00-54-16_00-56-20_label_B1-B2-0.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-005",
+      "session_id": "xd-session-005",
+      "scenario": "staged-violence",
+      "duration_s": 3014.306,
+      "expected_alert": false,
+      "model_label": "violent",
+      "events": [],
+      "tags": [
+        "staged"
+      ]
+    },
+    {
+      "video_id": "xd-006",
+      "media": {
+        "relative_path": "poc_eval/xd_violence/Fast.Five.2011__#01-50-50_01-51-37_label_B2-B6-0.mp4"
+      },
+      "split": "test",
+      "dataset": "XD-Violence",
+      "source_id": "xd-camera-006",
+      "session_id": "xd-session-006",
+      "scenario": "staged-violence",
+      "duration_s": 1171.28,
+      "expected_alert": false,
+      "model_label": "violent",
+      "events": [],
+      "tags": [
+        "staged"
+      ]
+    },
+    {
+      "video_id": "mot20-001",
+      "media": {
+        "relative_path": "raw/mot20/MOT20-01.mp4"
+      },
+      "split": "test",
+      "dataset": "MOT20",
+      "source_id": "mot20-camera-001",
+      "session_id": "mot20-session-001",
+      "scenario": "normal",
+      "duration_s": 17.16,
+      "expected_alert": false,
+      "model_label": null,
+      "events": [],
+      "tags": [
+        "staged"
+      ]
+    },
+    {
+      "video_id": "mot20-003",
+      "media": {
+        "relative_path": "raw/mot20/MOT20-05.mp4"
+      },
+      "split": "test",
+      "dataset": "MOT20",
+      "source_id": "mot20-camera-003",
+      "session_id": "mot20-session-003",
+      "scenario": "normal",
+      "duration_s": 132.6,
+      "expected_alert": false,
+      "model_label": null,
+      "events": [],
+      "tags": [
+        "staged"
+      ]
+    }
+  ]
+}

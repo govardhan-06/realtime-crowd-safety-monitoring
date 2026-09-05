@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "evaluation_id": "example-test-fixture",
+  "matching": {
+    "temporal_tolerance_s": 2.0,
+    "require_temporal_overlap": true,
+    "actionable_state": "active"
+  },
+  "entries": [
+    {
+      "video_id": "positive-violent",
+      "media": {"relative_path": "fixtures/positive-violent.mp4"},
+      "split": "test",
+      "dataset": "fixture",
+      "source_id": "fixture-camera-a",
+      "session_id": "session-positive",
+      "scenario": "staged-violence",
+      "duration_s": 12.0,
+      "expected_alert": true,
+      "model_label": "violent",
+      "events": [
+        {"event_id": "positive-violent-event", "label": "violence", "onset_s": 3.0, "end_s": 7.0, "expected_alert": true, "severity": "high", "source_id": "fixture-camera-a", "roi": "zone-main"}
+      ],
+      "tags": ["staged"]
+    },
+    {
+      "video_id": "hard-negative-motion",
+      "media": {"relative_path": "fixtures/hard-negative-motion.mp4"},
+      "split": "test",
+      "dataset": "fixture",
+      "source_id": "fixture-camera-b",
+      "session_id": "session-hard-negative",
+      "scenario": "hard-negative",
+      "duration_s": 10.0,
+      "expected_alert": false,
+      "model_label": "normal",
+      "events": [],
+      "tags": ["dense", "hard-negative", "camera-motion"]
+    },
+    {
+      "video_id": "multiple-events",
+      "media": {"relative_path": "fixtures/multiple-events.mp4"},
+      "split": "test",
+      "dataset": "fixture",
+      "source_id": "fixture-camera-c",
+      "session_id": "session-multiple",
+      "scenario": "combined-risk",
+      "duration_s": 20.0,
+      "expected_alert": true,
+      "model_label": "violent",
+      "events": [
+        {"event_id": "multiple-events-first", "label": "combined-risk", "onset_s": 4.0, "end_s": 8.0, "expected_alert": true, "severity": "medium", "source_id": "fixture-camera-c", "roi": "zone-main"},
+        {"event_id": "multiple-events-second", "label": "violence", "onset_s": 13.0, "end_s": 16.0, "expected_alert": false, "severity": "low", "source_id": "fixture-camera-c", "roi": "zone-side"}
+      ],
+      "tags": ["dense", "occlusion"]
+    }
+  ]
+}
