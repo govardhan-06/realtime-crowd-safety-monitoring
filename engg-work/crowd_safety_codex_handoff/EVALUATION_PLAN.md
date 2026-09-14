@@ -6,6 +6,20 @@ The research claim is not proven by showing that a violence classifier has high 
 
 The evaluation must test whether incident-level temporal fusion produces a better operational result than independent detectors.
 
+The M6 Colab workflow keeps component and system evaluation separate. It reads
+`train.json`, `val.json`, `test.json`, and `external_test.json` from the
+Drive-backed binary-manifest workflow. Stage 1 reports X3D results separately
+for Violent-Flows, UBI-Fights, Surveillance Fight, and SCVD; the fixed
+development threshold is used and `external_test.json` is never used for
+training or threshold selection. Stage 2 adapts only reviewed, long-form
+UBI-Fights `test` entries into the existing strict incident-manifest contract.
+
+The four source roles are: Violent-Flows external-only; UBI-Fights primary
+train/validation/test plus incident evaluation; Surveillance Fight
+train/validation/test; and SCVD `Normal`/`Violence` train/validation/test with
+`Weaponized Violence` excluded initially. The binary manifests contain
+relative Drive paths and original-video grouping, not copied split media.
+
 ## 2. Required systems to compare
 
 ### B1 — Violence only
@@ -56,8 +70,10 @@ Report:
 - model/checkpoint identifier
 
 Required comparison:
-- M3A ready-made pretrained/fine-tuned violence checkpoint;
+- M3A ready-made pretrained X3D-M violence checkpoint;
 - M3B project X3D-S transfer-learning checkpoint.
+
+M3A component evaluation is separate from the five-strategy full-system evaluation: score reviewed `violence.jsonl` windows and overlapping violence events first, and do not treat unavailable windows as negative examples.
 
 Do not report third-party model-card metrics as project results.
 
@@ -153,7 +169,7 @@ Minimum useful ablations:
 
 Optional:
 - detector fine-tuning impact;
-- M3A VideoMAE-style baseline vs M3B X3D-S transfer-learning result;
+- M3A X3D-M baseline vs M3B X3D-S transfer-learning result;
 - engineered motion only vs engineered + optical flow;
 - rule fusion vs learned fusion.
 

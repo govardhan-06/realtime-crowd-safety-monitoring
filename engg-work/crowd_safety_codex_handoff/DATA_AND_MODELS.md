@@ -17,72 +17,25 @@ The delivery strategy is intentionally training-independent:
 
 > The full system must be buildable with pretrained components before any project-specific fine-tuning succeeds.
 
-## 2. Recommended datasets
+## 2. Approved violence datasets
 
-### XD-Violence
+The Colab workflow uses exactly four sources and stores them under
+`/content/drive/MyDrive/crowd_safety/datasets/`. Manifests reference those
+original files; split folders and derived media are not created.
 
-Role:
-- primary candidate for violence/aggression representation fine-tuning;
-- broad violent/non-violent video source;
-- selected held-out clips for component evaluation.
+| Dataset | Role | Binary mapping |
+|---|---|---|
+| Violent-Flows | independent external crowd-violence test only | `Violence -> violent`, `NonViolence -> normal` |
+| UBI-Fights | train, validation, frozen test, and primary long-form incident test | source fight/non-fight class folders -> `violent`/`normal` |
+| Surveillance Fight | train, validation, and frozen test | source fight/non-fight class folders -> `violent`/`normal` |
+| SCVD | CCTV train, validation, and frozen test | `Normal -> normal`, `Violence -> violent`; `Weaponized Violence` excluded |
 
-Use:
-- inspect official licensing/access terms before download/use;
-- define train/validation/test split without source leakage.
-
-### Violent-Flows
-
-Role:
-- crowd violence supplement;
-- useful for testing violence recognition where the surrounding scene contains multiple people;
-- candidate cross-dataset validation source.
-
-Because it is relatively small, do not rely on it as the sole training set.
-
-### UCF-Crime
-
-Role:
-- long-form surveillance-like evaluation;
-- event localisation/end-to-end pipeline stress testing;
-- selected fighting/assault/normal videos where licensing permits.
-
-Do not equate generic anomaly labels with our incident taxonomy.
-
-### MOT20
-
-Role:
-- dense pedestrian detection/tracking stress test;
-- trajectory/crowd-feature validation;
-- crowded station/stadium/square-like scenes.
-
-Do not train ByteTrack from scratch.
-
-### UCSD Pedestrian Anomaly
-
-Role:
-- abnormal movement/crowd-feature response testing;
-- threshold/feature sanity checks.
-
-Use as a crowd-motion benchmark, not as ground truth for violence.
-
-### CrowdHuman
-
-Role:
-- optional person-detector fine-tuning only if measured dense-scene detection errors justify it.
-
-Decision gate:
-1. evaluate pretrained detector on dense footage;
-2. inspect misses/occlusions;
-3. fine-tune only if person-detection quality materially limits downstream features.
-
-### RWF-2000
-
-Role:
-- optional violence dataset **only if legitimately accessible under applicable terms**.
-
-Hard rule:
-- the project must not depend on RWF-2000 availability;
-- do not scrape/reconstruct restricted raw footage.
+Splits are assigned at original-video/group level with a fixed seed (`42`)
+when an official split is unavailable. Violent-Flows is never eligible for
+training or validation. Source class, group, relative Drive path, and SHA-256
+are retained in the binary records. Dataset access and media remain Colab/
+Drive-only and must be authorised; no footage, archives, credentials, or
+checkpoints belong in Git.
 
 ## 3. Project-specific staged/curated footage
 
@@ -122,10 +75,10 @@ Example:
 
 ```csv
 video_id,source_dataset,path_or_external_id,split,scenario,expected_alert
-mot20_dense_01,MOT20,...,dev,dense_normal,false
-vf_violence_01,Violent-Flows,...,dev,crowd_violence,true
-ucf_long_fight_01,UCF-Crime,...,test,long_fight,true
-staged_dispersal_01,project,...,test,dispersal,true
+ubi_test_01,UBI-Fights,...,test,long_fight,true
+vf_violence_01,Violent-Flows,...,external_test,crowd_violence,true
+surveillance_normal_01,Surveillance Fight,...,test,hard_negative,false
+scvd_violence_01,SCVD,...,test,staged_violence,true
 staged_benign_converge_01,project,...,test,benign_convergence,false
 ```
 
@@ -172,22 +125,20 @@ Goal:
 - unblock the complete end-to-end system;
 - produce timestamp-aligned violent/non-violent evidence through a generic adapter.
 
-Initial development checkpoint candidate:
-- `mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence`
-
-Characteristics at the time this handoff was updated:
-- VideoMAE-family binary video classifier;
-- Hugging Face Transformers compatible;
-- small checkpoint suitable for local/Colab experimentation;
-- community checkpoint, not an authoritative benchmark.
+Active development checkpoint:
+- repository `visionlab-ai/school-violence-detection-models`;
+- `final/final_x3d_realtime.pt`;
+- immutable revision `a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1`;
+- SHA-256 `e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349`;
+- X3D-M, 16 RGB frames, 224×224, mean `0.45`, standard deviation `0.225`;
+- labels `non-violent`, `violent`, starting threshold `0.4`.
 
 Rules:
-1. verify the current model card/license before downloading;
-2. pin the revision/checksum used by the project;
-3. inspect `id2label`/`label2id` rather than assuming class order;
-4. benchmark on our own dev videos before choosing threshold;
-5. never copy the model card's metrics into our report as if they are our experimental result;
-6. if the checkpoint is unusable, replace it behind the same adapter rather than changing downstream contracts.
+1. verify the checksum before loading;
+2. keep the adapter generic and model tensors private;
+3. evaluate on reviewed project clips before calibrating the threshold;
+4. never copy model-card metrics into project results;
+5. if this checkpoint is unusable, replace it behind the same adapter rather than changing downstream contracts.
 
 A second community checkpoint may be tried only if the first is clearly unsuitable. Do not turn M3A into an open-ended model search.
 
@@ -223,7 +174,7 @@ Do **not**:
 - relatively lightweight;
 - clear transfer-learning path;
 - creates a genuine project training/fine-tuning experiment;
-- gives a meaningful comparison against the ready-made M3A VideoMAE-style baseline.
+- gives a meaningful comparison against the ready-made M3A X3D-M baseline.
 
 ## 7. Crowd intelligence
 

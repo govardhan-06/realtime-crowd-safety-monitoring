@@ -43,7 +43,14 @@ class RunnerTest(unittest.TestCase):
             annotate_frame(np.zeros((24, 32, 3), dtype=np.uint8), 1, 1.0, violence=evidence)
 
         texts = [call.args[1] for call in put_text.call_args_list]
-        self.assertIn("violence: available score=0.65", texts)
+        self.assertIn("violence: available | score=0.65", texts)
+
+    def test_overlay_explains_violence_warmup(self):
+        with patch("crowd_safety.annotations.cv2.putText") as put_text:
+            annotate_frame(np.zeros((24, 32, 3), dtype=np.uint8), 1, 1.0)
+
+        texts = [call.args[1] for call in put_text.call_args_list]
+        self.assertIn("violence: warming up (need 16 frames)", texts)
 
     def test_perception_boxes_are_transformed_to_resized_roi_coordinates(self):
         detection = PersonDetection("camera-1", 0, 0.0, (10, 20, 30, 40), 0.9)
@@ -236,6 +243,7 @@ target_fps = 3.0
 resize = [32, 24]
 [violence]
 enabled = true
+backend = "huggingface"
 clip_duration_s = 1.0
 sample_count = 3
 cadence_s = 0.5
@@ -279,6 +287,7 @@ target_fps = 3.0
 resize = [32, 24]
 [violence]
 enabled = true
+backend = "huggingface"
 clip_duration_s = 1.0
 sample_count = 3
 cadence_s = 0.5
@@ -347,6 +356,7 @@ name = "zone"
 polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
 [violence]
 enabled = true
+backend = "huggingface"
 clip_duration_s = 1.0
 sample_count = 3
 cadence_s = 0.5

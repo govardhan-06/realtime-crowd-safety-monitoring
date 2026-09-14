@@ -116,6 +116,13 @@ Outcome:
   * degraded;
   * unavailable.
 
+The active M3A artifact is the pinned `visionlab-ai/school-violence-detection-models`
+`final/final_x3d_realtime.pt` X3D-M checkpoint at revision
+`a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1`, with its SHA-256 recorded in the
+development config. Real checkpoint loading and component evaluation are
+Colab-only; local checks validate configuration, adapter contracts, and
+media-independent notebook logic without downloading weights.
+
 No project-specific training is required in M3A.
 
 The purpose of M3A is to ensure that downstream development does not depend on successful fine-tuning.

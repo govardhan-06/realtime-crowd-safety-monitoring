@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = []
-violence = ["transformers==4.57.6"]
+violence = ["transformers==4.57.6", "torch", "torchvision", "pytorchvideo", "huggingface-hub"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

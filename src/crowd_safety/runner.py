@@ -20,7 +20,7 @@ from .scheduling import FrameScheduler
 from .tracking import ByteTrackTracker, Tracker
 from .types import CrowdFeatureRecord, PersonDetection, StageHealth, TrackObservation, ViolenceEvidence
 from .video import VideoReader, VideoWriter
-from .violence import RollingClipBuffer, VideoMAEViolenceClassifier, ViolenceCadence, ViolenceClassifier
+from .violence import RollingClipBuffer, ViolenceCadence, ViolenceClassifier, create_violence_classifier
 
 
 @dataclass(frozen=True)
@@ -224,15 +224,7 @@ def process_video(
     clip_buffer = RollingClipBuffer(config.violence.clip_duration_s, config.violence.sample_count) if m3_enabled else None
     violence_cadence = ViolenceCadence(config.violence.cadence_s) if m3_enabled else None
     if m3_enabled:
-        violence_classifier = violence_classifier or VideoMAEViolenceClassifier(
-            config.violence.model,
-            config.violence.revision,
-            device=config.violence.device,
-            labels=config.violence.labels,
-            license_name=config.violence.license,
-            known_limitations=config.violence.known_limitations,
-            checkpoint_sha256=config.violence.checkpoint_sha256,
-        )
+        violence_classifier = violence_classifier or create_violence_classifier(config.violence)
         violence_health = getattr(violence_classifier, "health", None)
     if m2_enabled:
         detector = detector or UltralyticsPersonDetector(
@@ -532,6 +524,7 @@ def process_video(
                     "checkpoint_sha256": detector_health.checkpoint_sha256 if detector_health else None,
                 } if m2_enabled else {}),
                 **({
+                    "violence_provenance": violence_provenance or {},
                     "violence_model": violence_provenance.get("model") if violence_provenance else None,
                     "violence_revision": violence_provenance.get("revision") if violence_provenance else None,
                     "violence_label_mapping": violence_provenance.get("label_mapping") if violence_provenance else [],

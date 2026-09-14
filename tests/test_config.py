@@ -206,6 +206,7 @@ directory = "artifacts"
 [processing]
 [violence]
 enabled = true
+backend = "huggingface"
 model = "example/model"
 revision = "abc123"
 clip_duration_s = 2.0
@@ -230,6 +231,69 @@ checkpoint_sha256 = "ff542a5aa37d4c447584523545996d7c186d87c71b70decae0a773a02f2
         self.assertEqual(config.violence.labels, ("safe", "unsafe"))
         self.assertEqual(config.violence.license, "mit")
         self.assertEqual(config.violence.checkpoint_sha256[:8], "ff542a5a")
+
+    def test_loads_x3d_m3a_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "pipeline.toml"
+            config_path.write_text(
+                """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[violence]
+enabled = true
+backend = "x3d"
+repository = "visionlab-ai/school-violence-detection-models"
+checkpoint = "final/final_x3d_realtime.pt"
+revision = "a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1"
+architecture = "x3d_m"
+checkpoint_sha256 = "e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349"
+labels = ["non-violent", "violent"]
+"""
+            )
+            config = load_config(config_path)
+
+        self.assertEqual(config.violence.backend, "x3d")
+        self.assertEqual(config.violence.repository, "visionlab-ai/school-violence-detection-models")
+        self.assertEqual(config.violence.checkpoint, "final/final_x3d_realtime.pt")
+        self.assertEqual(config.violence.architecture, "x3d_m")
+        self.assertEqual(config.violence.sample_count, 16)
+        self.assertEqual(config.violence.clip_duration_s, 3.0)
+        self.assertEqual(config.violence.threshold, 0.4)
+
+    def test_rejects_incomplete_x3d_contract(self):
+        base = """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+[violence]
+enabled = true
+backend = "x3d"
+repository = "visionlab-ai/school-violence-detection-models"
+checkpoint = "final/final_x3d_realtime.pt"
+revision = "a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1"
+architecture = "x3d_m"
+checkpoint_sha256 = "e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349"
+"""
+        for field, value in (
+            ("repository", '""'),
+            ("checkpoint", '""'),
+            ("architecture", '"x3d_s"'),
+            ("revision", '"main"'),
+            ("checkpoint_sha256", '"not-a-hash"'),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                config_path = Path(directory) / "pipeline.toml"
+                lines = base.splitlines()
+                line_index = next(index for index, line in enumerate(lines) if line.startswith(f"{field} ="))
+                lines[line_index] = f"{field} = {value}"
+                config_path.write_text("\n".join(lines) + "\n")
+                with self.assertRaisesRegex(ConfigError, field):
+                    load_config(config_path)
 
     def test_rejects_invalid_m3_violence_settings(self):
         for field, value in (

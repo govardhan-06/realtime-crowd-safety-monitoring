@@ -7,6 +7,11 @@ from .config import ROIConfig
 from .types import CrowdFeatureRecord, TrackObservation, ViolenceEvidence
 
 
+def _put_contrasted_text(image: Any, text: str, origin: tuple[int, int], color: tuple[int, int, int]) -> None:
+    cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+
+
 def annotate_frame(
     image: Any,
     frame_index: int,
@@ -19,16 +24,7 @@ def annotate_frame(
     violence: ViolenceEvidence | None = None,
 ) -> Any:
     annotated = image.copy()
-    cv2.putText(
-        annotated,
-        f"frame={frame_index} time={timestamp_s:.3f}s",
-        (8, 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.45,
-        (0, 255, 255),
-        1,
-        cv2.LINE_AA,
-    )
+    _put_contrasted_text(annotated, f"frame={frame_index} time={timestamp_s:.3f}s", (8, 20), (0, 140, 140))
     for roi in rois:
         points = [(int(x), int(y)) for x, y in roi.polygon]
         cv2.polylines(annotated, [np.array(points)], True, (255, 180, 0), 1)
@@ -43,21 +39,14 @@ def annotate_frame(
             cv2.polylines(annotated, [np.array(points)], False, (0, 180, 255), 1)
     for index, feature in enumerate(features):
         status = feature.status
-        text = f"{feature.roi_name}: n={feature.occupancy if feature.occupancy is not None else '-'} {status}"
-        cv2.putText(annotated, text, (8, 38 + index * 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        count = feature.occupancy if feature.occupancy is not None else "-"
+        text = f"crowd {feature.roi_name}: count={count} status={status}"
+        _put_contrasted_text(annotated, text, (8, 38 + index * 16), (0, 120, 120))
     if violence is None:
-        violence_text = "violence: warming-up"
+        violence_text = "violence: warming up (need 16 frames)"
     elif violence.score is None:
         violence_text = f"violence: {violence.status}"
     else:
-        violence_text = f"violence: {violence.status} score={violence.score:.2f}"
-    cv2.putText(
-        annotated,
-        violence_text,
-        (8, 38 + len(features) * 16),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.4,
-        (255, 255, 255),
-        1,
-    )
+        violence_text = f"violence: {violence.status} | score={violence.score:.2f}"
+    _put_contrasted_text(annotated, violence_text, (8, 38 + len(features) * 16), (0, 0, 150))
     return annotated

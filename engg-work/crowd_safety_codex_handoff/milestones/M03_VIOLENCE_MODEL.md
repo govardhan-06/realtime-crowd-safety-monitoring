@@ -21,15 +21,23 @@ M3B is an important experiment but must not block M4-M6.
 
 Integrate a ready-made binary temporal-video classifier behind a generic adapter so the complete incident pipeline can be developed before project-specific training is complete.
 
-## Initial checkpoint candidate
+## Active checkpoint
 
-Use:
+Use the verified pretrained X3D-M checkpoint:
 
 ```text
-mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence
+repository: visionlab-ai/school-violence-detection-models
+checkpoint: final/final_x3d_realtime.pt
+revision: a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1
+sha256: e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349
+architecture: x3d_m
+input: 16 RGB frames, 224x224, mean=0.45, std=0.225
+labels: non-violent / violent
+threshold: 0.4 (starting value)
+license: MIT
 ```
 
-as the first development candidate **only after verifying its current license, model card, label mapping, and repository revision**.
+The checkpoint's model-card metrics are not project results; the project threshold is evaluated on reviewed clips in Colab.
 
 This is a community checkpoint. Treat it as a development baseline, not as ground truth.
 
@@ -38,7 +46,7 @@ If it is incompatible or obviously unsuitable, replace it behind the same adapte
 ## Required work
 
 - generic temporal-video classification interface;
-- Hugging Face/VideoMAE-style adapter for the initial checkpoint;
+- X3D-M adapter for the initial checkpoint;
 - checkpoint/revision/config metadata;
 - label mapping validation;
 - clip sampler;

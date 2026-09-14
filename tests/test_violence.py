@@ -1,9 +1,18 @@
 import unittest
+from pathlib import Path
+import tempfile
+from unittest import mock
 
 import torch
 
 from crowd_safety.types import FramePacket
-from crowd_safety.violence import ClipWindow, VideoMAEViolenceClassifier
+from crowd_safety.config import ViolenceConfig
+from crowd_safety.violence import (
+    ClipWindow,
+    VideoMAEViolenceClassifier,
+    X3DViolenceClassifier,
+    create_violence_classifier,
+)
 
 
 def window() -> ClipWindow:
@@ -35,6 +44,22 @@ class FakeModel:
 
     def __call__(self, **inputs):
         return type("Output", (), {"logits": torch.tensor([[0.0, 2.0]])})()
+
+
+class FakeX3DModel:
+    def __init__(self):
+        self.inputs = None
+
+    def eval(self):
+        return self
+
+    def to(self, device):
+        self.device = device
+        return self
+
+    def __call__(self, inputs):
+        self.inputs = inputs
+        return torch.tensor([[0.0, 2.0]])
 
 
 class ViolenceAdapterTest(unittest.TestCase):
@@ -136,6 +161,95 @@ class ViolenceAdapterTest(unittest.TestCase):
         self.assertEqual(evidence.status, "degraded")
         self.assertIsNone(evidence.score)
         self.assertIn("inference failed", evidence.detail)
+
+    def test_x3d_adapter_samples_rgb_frames_and_returns_provenance(self):
+        model = FakeX3DModel()
+        packets = tuple(
+            FramePacket(
+                "camera-1", index, float(index) / 5.0,
+                torch.tensor([[[0, 0, 255]]], dtype=torch.uint8).repeat(2, 2, 1),
+            )
+            for index in range(20)
+        )
+        x3d_window = ClipWindow(packets, packets[:16], packets[0].timestamp_s, packets[-1].timestamp_s)
+        classifier = X3DViolenceClassifier(
+            "visionlab-ai/school-violence-detection-models",
+            "final/final_x3d_realtime.pt",
+            "a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1",
+            architecture="x3d_m", device="cpu", sample_count=16,
+            labels=("non-violent", "violent"), license_name="mit",
+            checkpoint_sha256="e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349",
+            model_instance=model,
+        )
+
+        evidence = classifier.infer(x3d_window)
+
+        self.assertEqual(evidence.status, "available")
+        self.assertGreater(evidence.score, 0.8)
+        self.assertEqual(evidence.label_mapping, (("non-violent", 0), ("violent", 1)))
+        self.assertEqual(tuple(model.inputs.shape), (1, 3, 16, 224, 224))
+        self.assertGreater(float(model.inputs[0, 0].mean()), float(model.inputs[0, 1].mean()))
+        self.assertEqual(classifier.provenance["backend"], "x3d")
+        self.assertEqual(classifier.provenance["architecture"], "x3d_m")
+        self.assertEqual(classifier.provenance["sample_count"], 16)
+
+    def test_x3d_checkpoint_hash_mismatch_is_unavailable_without_zero(self):
+        with tempfile.NamedTemporaryFile() as checkpoint:
+            checkpoint.write(b"checkpoint")
+            checkpoint.flush()
+            classifier = X3DViolenceClassifier(
+                "repo", "checkpoint", "revision", device="cpu",
+                labels=("non-violent", "violent"), checkpoint_sha256="0" * 64,
+                checkpoint_path=Path(checkpoint.name), model_instance=FakeX3DModel(),
+            )
+
+        evidence = classifier.infer(window())
+
+        self.assertEqual(evidence.status, "unavailable")
+        self.assertIsNone(evidence.score)
+        self.assertIn("checksum", evidence.detail.lower())
+
+    def test_x3d_inference_failure_is_degraded_without_zero(self):
+        class BrokenX3DModel(FakeX3DModel):
+            def __call__(self, inputs):
+                raise RuntimeError("x3d inference failed")
+
+        classifier = X3DViolenceClassifier(
+            "repo", "checkpoint", "revision", device="cpu",
+            labels=("non-violent", "violent"), sample_count=3, model_instance=BrokenX3DModel(),
+        )
+
+        evidence = classifier.infer(window())
+
+        self.assertEqual(evidence.status, "degraded")
+        self.assertIsNone(evidence.score)
+        self.assertIn("x3d inference failed", evidence.detail)
+
+    def test_x3d_non_binary_output_is_degraded_without_zero(self):
+        class MulticlassX3DModel(FakeX3DModel):
+            def __call__(self, inputs):
+                return torch.tensor([[0.0, 1.0, 2.0]])
+
+        classifier = X3DViolenceClassifier(
+            "repo", "checkpoint", "revision", device="cpu",
+            labels=("non-violent", "violent"), sample_count=3, model_instance=MulticlassX3DModel(),
+        )
+
+        evidence = classifier.infer(window())
+
+        self.assertEqual(evidence.status, "degraded")
+        self.assertIsNone(evidence.score)
+        self.assertIn("binary", evidence.detail)
+
+    def test_factory_selects_x3d_backend(self):
+        config = ViolenceConfig(
+            enabled=True, backend="x3d", repository="repo", checkpoint="checkpoint",
+            revision="revision", architecture="x3d_m", labels=("non-violent", "violent"),
+        )
+        with mock.patch("crowd_safety.violence.X3DViolenceClassifier") as adapter:
+            create_violence_classifier(config)
+
+        adapter.assert_called_once()
 
 
 if __name__ == "__main__":

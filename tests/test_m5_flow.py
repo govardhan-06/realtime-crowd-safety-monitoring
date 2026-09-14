@@ -51,6 +51,7 @@ name = "zone"
 polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
 [violence]
 enabled = true
+backend = "huggingface"
 clip_duration_s = 1.0
 sample_count = 3
 cadence_s = 0.5

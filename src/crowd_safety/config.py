@@ -45,14 +45,18 @@ class CrowdConfig:
 @dataclass(frozen=True)
 class ViolenceConfig:
     enabled: bool = False
+    backend: str = "x3d"
+    repository: str = "visionlab-ai/school-violence-detection-models"
+    checkpoint: str = "final/final_x3d_realtime.pt"
+    architecture: str = "x3d_m"
     model: str = "mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence"
-    revision: str = "main"
-    clip_duration_s: float = 2.0
+    revision: str = "a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1"
+    clip_duration_s: float = 3.0
     sample_count: int = 16
     cadence_s: float = 1.0
-    threshold: float = 0.5
+    threshold: float = 0.4
     device: str = "auto"
-    labels: tuple[str, ...] = ("safe", "unsafe")
+    labels: tuple[str, ...] = ("non-violent", "violent")
     license: str = ""
     known_limitations: str = ""
     checkpoint_sha256: str | None = None
@@ -283,16 +287,32 @@ def load_config(path: str | Path) -> PipelineConfig:
     violence_enabled = violence_values.get("enabled", False)
     if not isinstance(violence_enabled, bool):
         raise ConfigError("violence.enabled must be boolean")
+    violence_backend = violence_values.get("backend", ViolenceConfig.backend)
+    if not isinstance(violence_backend, str) or violence_backend not in {"x3d", "huggingface"}:
+        raise ConfigError("violence.backend must be x3d or huggingface")
+    violence_repository = violence_values.get("repository", ViolenceConfig.repository)
+    if not isinstance(violence_repository, str) or not violence_repository.strip():
+        raise ConfigError("violence.repository must be a non-empty string")
+    violence_checkpoint = violence_values.get("checkpoint", ViolenceConfig.checkpoint)
+    if not isinstance(violence_checkpoint, str) or not violence_checkpoint.strip():
+        raise ConfigError("violence.checkpoint must be a non-empty string")
+    violence_architecture = violence_values.get("architecture", ViolenceConfig.architecture)
+    if not isinstance(violence_architecture, str) or not violence_architecture.strip():
+        raise ConfigError("violence.architecture must be a non-empty string")
     violence_model = violence_values.get("model", ViolenceConfig.model)
     if not isinstance(violence_model, str) or not violence_model.strip():
         raise ConfigError("violence.model must be a non-empty string")
     violence_revision = violence_values.get("revision", ViolenceConfig.revision)
     if not isinstance(violence_revision, str) or not violence_revision.strip():
         raise ConfigError("violence.revision must be a non-empty string")
-    clip_duration_s = _positive_number(violence_values.get("clip_duration_s", 2.0), "violence.clip_duration_s")
-    sample_count = _positive_int(violence_values.get("sample_count", 16), "violence.sample_count", 2)
-    cadence_s = _positive_number(violence_values.get("cadence_s", 1.0), "violence.cadence_s")
-    threshold = violence_values.get("threshold", 0.5)
+    clip_duration_s = _positive_number(
+        violence_values.get("clip_duration_s", ViolenceConfig.clip_duration_s), "violence.clip_duration_s"
+    )
+    sample_count = _positive_int(
+        violence_values.get("sample_count", ViolenceConfig.sample_count), "violence.sample_count", 2
+    )
+    cadence_s = _positive_number(violence_values.get("cadence_s", ViolenceConfig.cadence_s), "violence.cadence_s")
+    threshold = violence_values.get("threshold", ViolenceConfig.threshold)
     if (
         not isinstance(threshold, (int, float))
         or isinstance(threshold, bool)
@@ -300,7 +320,7 @@ def load_config(path: str | Path) -> PipelineConfig:
         or not 0 <= threshold <= 1
     ):
         raise ConfigError("violence.threshold must be between zero and one")
-    violence_device = violence_values.get("device", "auto")
+    violence_device = violence_values.get("device", ViolenceConfig.device)
     if not isinstance(violence_device, str) or not violence_device.strip():
         raise ConfigError("violence.device must be a non-empty string")
     violence_labels = violence_values.get("labels", list(ViolenceConfig.labels))
@@ -310,10 +330,10 @@ def load_config(path: str | Path) -> PipelineConfig:
         or any(not isinstance(label, str) or not label.strip() for label in violence_labels)
     ):
         raise ConfigError("violence.labels must contain at least two non-empty strings")
-    violence_license = violence_values.get("license", "")
+    violence_license = violence_values.get("license", ViolenceConfig.license)
     if not isinstance(violence_license, str):
         raise ConfigError("violence.license must be a string")
-    known_limitations = violence_values.get("known_limitations", "")
+    known_limitations = violence_values.get("known_limitations", ViolenceConfig.known_limitations)
     if not isinstance(known_limitations, str):
         raise ConfigError("violence.known_limitations must be a string")
     checkpoint_sha256 = violence_values.get("checkpoint_sha256")
@@ -323,6 +343,15 @@ def load_config(path: str | Path) -> PipelineConfig:
         or any(character not in "0123456789abcdefABCDEF" for character in checkpoint_sha256)
     ):
         raise ConfigError("violence.checkpoint_sha256 must be a 64-character hexadecimal string")
+    if violence_enabled and violence_backend == "x3d":
+        if violence_architecture != "x3d_m":
+            raise ConfigError("violence.architecture must be x3d_m for the x3d backend")
+        if re.fullmatch(r"[0-9a-fA-F]{40}", violence_revision) is None:
+            raise ConfigError("violence.revision must be an immutable 40-character commit for x3d")
+        if checkpoint_sha256 is None:
+            raise ConfigError("violence.checkpoint_sha256 is required for the x3d backend")
+        if len(violence_labels) != 2:
+            raise ConfigError("violence.labels must contain exactly two labels for the x3d backend")
 
     fusion_values = values.get("fusion", {})
     if not isinstance(fusion_values, dict):
@@ -435,6 +464,10 @@ def load_config(path: str | Path) -> PipelineConfig:
         ),
         violence=ViolenceConfig(
             enabled=violence_enabled,
+            backend=violence_backend,
+            repository=violence_repository,
+            checkpoint=violence_checkpoint,
+            architecture=violence_architecture,
             model=violence_model,
             revision=violence_revision,
             clip_duration_s=clip_duration_s,

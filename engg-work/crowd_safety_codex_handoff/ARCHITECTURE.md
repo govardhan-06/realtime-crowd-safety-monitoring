@@ -315,15 +315,15 @@ The rest of the application must depend on a generic binary temporal-video inter
 
 ### M3A — training-independent delivery baseline
 
-Integrate a ready-made violence-classification checkpoint first.
+Integrate the verified pretrained X3D-M checkpoint first:
+- repository: `visionlab-ai/school-violence-detection-models`;
+- checkpoint: `final/final_x3d_realtime.pt`;
+- revision: `a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1`;
+- checkpoint SHA-256: `e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349`;
+- architecture: `x3d_m`, 16 RGB frames, 224×224, mean `0.45`, standard deviation `0.225`;
+- labels: `non-violent`, `violent`.
 
-Initial development candidate:
-- `mitegvg/videomae-small-kinetics-binary-finetuned-xd-violence`
-
-Why:
-- compact VideoMAE-style transformer checkpoint;
-- standard Hugging Face video-classification interface;
-- suitable for unblocking end-to-end integration.
+The checkpoint is a delivery baseline, not an authoritative benchmark. Its model-card metrics are not project results.
 
 Rules:
 - verify license and label mapping before use;

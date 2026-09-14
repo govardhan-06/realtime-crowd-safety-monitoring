@@ -39,17 +39,20 @@ polygon = [[0, 0], [640, 0], [640, 360], [0, 360]]
 
 [violence]
 enabled = true
-model = "Nikeytas/videomae-crime-detector-fixed-format"
-revision = "5d6d18cf0cabd4bd01c98edc9d68288590afd24f"
-clip_duration_s = 3.2
+backend = "x3d"
+repository = "visionlab-ai/school-violence-detection-models"
+checkpoint = "final/final_x3d_realtime.pt"
+revision = "a744b6af7496f0cbfa4f0ba32acd46b65e52d4e1"
+architecture = "x3d_m"
+clip_duration_s = 3.0
 sample_count = 16
 cadence_s = 1.0
-threshold = 0.5
+threshold = 0.4
 device = "auto"
-labels = ["Non-Violent Incident", "Violent Crime"]
+labels = ["non-violent", "violent"]
 license = "mit"
-known_limitations = "Trained on a small UCF Crime subset; may not generalize across cameras, lighting, compression, or non-violent high-motion scenes."
-checkpoint_sha256 = "ff542a5aa37d4c447584523545996d7c186d87c71b70decae0a773a02f212e5c"
+known_limitations = "Trained on RWF-2000; may not generalize across cameras, lighting, compression, or benign high-motion scenes."
+checkpoint_sha256 = "e833f69d110f167cad4a6c38d385564bdb2f6de63d246e45cb03ff9aa17f0349"
 
 [fusion]
 strategy = "temporal"
