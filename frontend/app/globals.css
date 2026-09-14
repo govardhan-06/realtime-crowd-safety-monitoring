@@ -77,5 +77,19 @@ h3 { margin: 28px 0 12px; font-size: .95rem; }
 .generated-state { padding: 18px; background: #e8f0ee; font-size: 11px; text-transform: uppercase; }
 .generated-state[data-status='disabled'], .generated-state[data-status='unavailable'], .generated-state[data-status='failed'] { background: #eef0eb; color: var(--muted); }
 .generated-state p { margin: 10px 0 0; font-family: Manrope, sans-serif; font-size: .95rem; line-height: 1.6; text-transform: none; }
+.process-grid { display: grid; grid-template-columns: minmax(260px, .65fr) minmax(0, 1.35fr); gap: 24px; }
+.process-button { display: block; margin: 22px 0 12px; }
+.viewer-panel { min-width: 0; }
+.canvas-wrap { display: grid; min-height: 300px; place-items: center; padding: 12px; background: #17211f; }
+.canvas-wrap canvas { display: block; max-width: 100%; height: auto; }
+.viewer-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding-top: 16px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; }
+.viewer-stats span { display: grid; gap: 5px; }
+.viewer-stats strong { color: var(--ink); font-size: 12px; text-transform: none; }
+.process-panel { margin-top: 24px; }
+.stage-list { border-top: 1px solid var(--line); }
+.stage-row { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; padding: 12px 0; border-bottom: 1px solid var(--line); font-family: 'DM Mono', monospace; font-size: 11px; text-transform: capitalize; }
+.stage-row span { color: var(--muted); }
+.timeline-title { margin-top: 30px; }
+@media (max-width: 720px) { .process-grid { grid-template-columns: 1fr; } .viewer-stats { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px) { .shell { padding: 32px 16px 48px; } .masthead, .detail-head { display: block; } .live-mark { margin-top: 20px; } .status-strip { grid-template-columns: 1fr; } .incident-row { grid-template-columns: 5px minmax(0, 1fr) 20px; gap: 12px; } .incident-meta { grid-column: 2 / 3; display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 6px 12px; text-align: left; } .incident-meta span:nth-child(1) { display: none; } .arrow { grid-column: 3; grid-row: 1; } .detail-grid { grid-template-columns: 1fr; } .panel { padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
