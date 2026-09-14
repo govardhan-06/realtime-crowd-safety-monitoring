@@ -13,7 +13,12 @@ def _load_x3d_checkpoint(path: Path, torch: Any) -> Any:
     import numpy as np
 
     numpy_core = np._core if hasattr(np, "_core") else np.core
-    safe_globals = [numpy_core.multiarray.scalar, np.dtype, type(np.dtype(np.float32))]
+    safe_globals = [
+        numpy_core.multiarray.scalar,
+        np.dtype,
+        type(np.dtype(np.float32)),
+        type(np.dtype(np.float64)),
+    ]
     with torch.serialization.safe_globals(safe_globals):
         return torch.load(path, map_location="cpu", weights_only=True)
 

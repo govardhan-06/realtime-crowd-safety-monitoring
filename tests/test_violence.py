@@ -65,6 +65,8 @@ class FakeX3DModel:
 
 class ViolenceAdapterTest(unittest.TestCase):
     def test_x3d_checkpoint_load_allowlists_numpy_scalar_with_weights_only(self):
+        import numpy as np
+
         safe_globals = mock.Mock()
         safe_globals.return_value.__enter__ = mock.Mock(return_value=None)
         safe_globals.return_value.__exit__ = mock.Mock(return_value=None)
@@ -76,7 +78,20 @@ class ViolenceAdapterTest(unittest.TestCase):
 
         self.assertEqual(checkpoint, {"model": {}})
         safe_globals.assert_called_once()
+        allowed_globals = safe_globals.call_args.args[0]
+        self.assertIn(type(np.dtype(np.float64)), allowed_globals)
         fake_torch.load.assert_called_once_with(Path("checkpoint.pt"), map_location="cpu", weights_only=True)
+
+    def test_x3d_checkpoint_load_accepts_numpy_float64_dtype(self):
+        import numpy as np
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            torch.save({"dtype": np.dtype(np.float64)}, path)
+
+            checkpoint = _load_x3d_checkpoint(path, torch)
+
+        self.assertEqual(checkpoint["dtype"], np.dtype(np.float64))
 
     def test_maps_confirmed_unsafe_label_to_generic_score(self):
         classifier = VideoMAEViolenceClassifier(
