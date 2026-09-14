@@ -12,6 +12,7 @@ from crowd_safety.violence import (
     VideoMAEViolenceClassifier,
     X3DViolenceClassifier,
     _load_x3d_checkpoint,
+    _normalize_x3d_state_dict,
     create_violence_classifier,
 )
 
@@ -64,6 +65,16 @@ class FakeX3DModel:
 
 
 class ViolenceAdapterTest(unittest.TestCase):
+    def test_x3d_checkpoint_state_dict_strips_backbone_wrapper(self):
+        state_dict = {
+            "backbone.blocks.0.weight": torch.ones(1),
+            "backbone.blocks.5.proj.weight": torch.ones(2),
+        }
+
+        normalized = _normalize_x3d_state_dict(state_dict)
+
+        self.assertEqual(set(normalized), {"blocks.0.weight", "blocks.5.proj.weight"})
+
     def test_x3d_checkpoint_load_allowlists_numpy_scalar_with_weights_only(self):
         import numpy as np
 

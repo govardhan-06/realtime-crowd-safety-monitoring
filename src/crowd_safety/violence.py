@@ -23,6 +23,14 @@ def _load_x3d_checkpoint(path: Path, torch: Any) -> Any:
         return torch.load(path, map_location="cpu", weights_only=True)
 
 
+def _normalize_x3d_state_dict(state_dict: Any) -> Any:
+    if not isinstance(state_dict, dict) or not state_dict:
+        return state_dict
+    if all(isinstance(key, str) and key.startswith("backbone.") for key in state_dict):
+        return {key.removeprefix("backbone."): value for key, value in state_dict.items()}
+    return state_dict
+
+
 @dataclass(frozen=True)
 class ClipWindow:
     packets: tuple[FramePacket, ...]
@@ -426,6 +434,7 @@ class X3DViolenceClassifier:
             model.blocks[5].proj = torch.nn.Linear(2048, 2)
             checkpoint = _load_x3d_checkpoint(path, torch)
             state_dict = checkpoint.get("model", checkpoint.get("model_state_dict", checkpoint))
+            state_dict = _normalize_x3d_state_dict(state_dict)
             model.load_state_dict(state_dict)
             self.checkpoint_path = path
             self.model_instance = model
