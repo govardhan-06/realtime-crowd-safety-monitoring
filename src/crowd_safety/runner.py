@@ -1,7 +1,9 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+import base64
 import json
 import time
+from typing import Callable
 from pathlib import Path
 from uuid import uuid4
 from importlib.metadata import PackageNotFoundError, version
@@ -12,6 +14,8 @@ from .annotations import annotate_frame
 from .artifacts import config_hash, resolved_config, write_json
 from .config import PipelineConfig
 from .crowd_features import compute_crowd_features
+from .crowd_flow import CrowdFlowTracker
+from .motion_entropy import compute_motion_entropy
 from .detection import PersonDetector, UltralyticsPersonDetector
 from .evidence import capture_run_evidence
 from .fusion import FUSION_VERSION, FusionBuilder
@@ -38,6 +42,7 @@ class RunResult:
     fusion_path: Path | None = None
     incidents_path: Path | None = None
     transitions_path: Path | None = None
+    flows_path: Path | None = None
     evidence_paths: tuple[Path, ...] = ()
 
 
@@ -172,11 +177,13 @@ def process_video(
     detector: PersonDetector | None = None,
     tracker: Tracker | None = None,
     violence_classifier: ViolenceClassifier | None = None,
+    event_sink: Callable[[dict], None] | None = None,
+    run_id: str | None = None,
 ) -> RunResult:
     input_path = Path(input_override).expanduser().resolve() if input_override else config.input_path
     resolved = resolved_config(config, input_path)
     digest = config_hash(resolved)
-    run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
+    run_id = run_id or f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
     run_directory = config.output_directory / run_id
     run_directory.mkdir(parents=True, exist_ok=False)
     video_path = run_directory / "annotated.mp4"
@@ -192,10 +199,12 @@ def process_video(
     fusion_path = run_directory / "fusion.jsonl" if m4_enabled else None
     incidents_path = run_directory / "incidents.jsonl" if m4_enabled else None
     transitions_path = run_directory / "transitions.jsonl" if m4_enabled else None
+    flows_path = run_directory / "flows.jsonl" if m2_enabled and config.crowd.lois else None
     started_at = _utc_now()
     start_monotonic = time.perf_counter()
     processed_count = 0
     skipped_count = 0
+    decoded_count = 0
     decode_seconds = 0.0
     write_seconds = 0.0
     detector_seconds = 0.0
@@ -206,6 +215,7 @@ def process_video(
     tracker_calls = 0
     feature_calls = 0
     violence_calls = 0
+    max_buffered_frames = 0
     detector_health: StageHealth | None = None
     tracker_health: StageHealth | None = None
     feature_health: StageHealth | None = None
@@ -213,6 +223,8 @@ def process_video(
     detection_interval = 1.0 / config.perception.cadence_fps
     last_detection_timestamp: float | None = None
     last_tracks: tuple[TrackObservation, ...] = ()
+    previous_processed_image = None
+    last_packet_timestamp: float | None = None
     violence_health: StageHealth | None = None
     violence_provenance: dict[str, object] | None = None
     latest_violence_evidence: ViolenceEvidence | None = None
@@ -223,6 +235,19 @@ def process_video(
     last_fusion_timestamp: float | None = None
     clip_buffer = RollingClipBuffer(config.violence.clip_duration_s, config.violence.sample_count) if m3_enabled else None
     violence_cadence = ViolenceCadence(config.violence.cadence_s) if m3_enabled else None
+    flow_trackers = {}
+    emitted_health: dict[str, str] = {}
+
+    def emit(event: dict) -> None:
+        if event_sink:
+            event_sink(event)
+
+    def emit_health(health: StageHealth | None, timestamp_s: float) -> None:
+        if health is not None and emitted_health.get(health.stage) != health.status:
+            emitted_health[health.stage] = health.status
+            emit({"type": "stage", "stage": health.stage, "status": health.status, "detail": health.detail or "", "timestamp_s": timestamp_s})
+
+    emit({"type": "status", "state": "processing"})
     if m3_enabled:
         violence_classifier = violence_classifier or create_violence_classifier(config.violence)
         violence_health = getattr(violence_classifier, "health", None)
@@ -248,6 +273,7 @@ def process_video(
     fusion_output = fusion_path.open("w") if fusion_path else None
     incidents_output = incidents_path.open("w") if incidents_path else None
     transitions_output = transitions_path.open("w") if transitions_path else None
+    flows_output = flows_path.open("w") if flows_path else None
     try:
       with frames_path.open("w") as frames_output, VideoReader(input_path) as reader:
         source_metadata = {
@@ -258,6 +284,11 @@ def process_video(
             "fps": reader.fps,
             "frame_count": reader.frame_count,
         }
+        if flows_path:
+            flow_trackers = {
+                roi.name: CrowdFlowTracker(reader.source_id, roi.name, config.crowd.lois, config.crowd.flow_interval_s)
+                for roi in config.crowd.rois
+            }
         scheduler = FrameScheduler(config.target_fps)
         with VideoWriter(video_path, config.resize, config.target_fps, annotate=False) as writer:
             packets = iter(reader)
@@ -267,6 +298,8 @@ def process_video(
                     packet = next(packets)
                 except StopIteration:
                     break
+                decoded_count += 1
+                last_packet_timestamp = packet.timestamp_s
                 decode_seconds += time.perf_counter() - decode_start
                 process, schedule_time = scheduler.decide(packet.timestamp_s)
                 if process:
@@ -278,10 +311,12 @@ def process_video(
                     )
                     tracks: tuple[TrackObservation, ...] = ()
                     features: tuple[CrowdFeatureRecord, ...] = ()
+                    flow_records = ()
                     if m2_enabled:
                         if last_detection_timestamp is None or packet.timestamp_s - last_detection_timestamp >= detection_interval - 1e-9:
                             detector_result = detector.detect(packet)
                             detector_health = detector_result.health
+                            emit_health(detector_health, packet.timestamp_s)
                             detector_seconds += (detector_health.latency_ms or 0.0) / 1000.0
                             detector_calls += 1
                             last_detections = _resize_detections(
@@ -292,6 +327,7 @@ def process_video(
                             last_detection_timestamp = packet.timestamp_s
                             tracking_result = tracker.update(tracking_packet, last_detections)
                             tracker_health = tracking_result.health
+                            emit_health(tracker_health, packet.timestamp_s)
                             tracker_seconds += (tracker_health.latency_ms or 0.0) / 1000.0
                             tracker_calls += 1
                             last_tracks = tracking_result.observations
@@ -330,16 +366,34 @@ def process_video(
                                     congestion_speed_px_s=config.crowd.congestion_speed_px_s,
                                     source_id=packet.source_id,
                                 )
+                            if previous_processed_image is None and config.crowd.motion_entropy.enabled:
+                                motion = None
+                                motion_status = "insufficient"
+                                motion_detail = "a previous processed frame is required"
+                            else:
+                                motion = compute_motion_entropy(
+                                    previous_processed_image, image, roi, config.crowd.motion_entropy
+                                )
+                                motion_status = motion.status
+                                motion_detail = motion.detail
+                            feature = replace(
+                                feature,
+                                motion_entropy=motion.value if motion is not None else None,
+                                motion_entropy_status=motion_status,
+                                motion_entropy_detail=motion_detail,
+                            )
                             feature_values.append(feature)
                         features = tuple(feature_values)
+                        previous_processed_image = image.copy()
                         feature_seconds += time.perf_counter() - feature_start
                         feature_calls += 1
                         feature_health = StageHealth(
                             "crowd_features",
-                            "degraded" if any(item.status == "unavailable" for item in features) else "available",
+                            "degraded" if any(item.status == "unavailable" or item.motion_entropy_status == "unavailable" for item in features) else "available",
                             detail="ROI features are pixel-space proxies; calibration is not applied",
                             latency_ms=(time.perf_counter() - feature_start) * 1000.0,
                         )
+                        emit_health(feature_health, packet.timestamp_s)
                         if tracks_output:
                             tracks_output.write(json.dumps({
                                 "source_id": packet.source_id,
@@ -356,8 +410,16 @@ def process_video(
                                 "health": asdict(feature_health),
                                 "features": [asdict(item) for item in features],
                             }, sort_keys=True) + "\n")
+                        if flows_output:
+                            flow_values = []
+                            for roi in config.crowd.rois:
+                                for flow in flow_trackers[roi.name].update(packet.timestamp_s, tracks):
+                                    flow_values.append(flow)
+                                    flows_output.write(json.dumps(asdict(flow), sort_keys=True) + "\n")
+                            flow_records = tuple(flow_values)
                     if m3_enabled:
                         clip_buffer.append(tracking_packet)
+                        max_buffered_frames = max(max_buffered_frames, len(clip_buffer.packets))
                         window = clip_buffer.complete_window()
                         if window is not None and violence_cadence.is_due(packet.timestamp_s):
                             inference_start = time.perf_counter()
@@ -395,15 +457,25 @@ def process_video(
                                     device=config.violence.device, latency_ms=evidence.latency_ms,
                                     detail=evidence.detail,
                                 )
+                            emit_health(violence_health, packet.timestamp_s)
                             if violence_output:
                                 violence_output.write(json.dumps({
                                     "source_id": packet.source_id,
                                     "frame_index": packet.frame_index,
                                     "timestamp_s": packet.timestamp_s,
+                                    "video_duration_s": source_metadata["frame_count"] / source_metadata["fps"] if source_metadata["fps"] and source_metadata["frame_count"] else None,
+                                    "source_fps": source_metadata["fps"],
+                                    "decoded_frames": decoded_count,
+                                    "processed_frames": processed_count,
+                                    "buffered_frames": len(clip_buffer.packets),
+                                    "required_frames": config.violence.sample_count,
+                                    "clip_duration_s": config.violence.clip_duration_s,
+                                    "sample_count": config.violence.sample_count,
                                     "health": asdict(violence_health),
                                     "evidence": asdict(evidence),
                                 }, sort_keys=True) + "\n")
                     if m4_enabled:
+                        emit_health(StageHealth("fusion", "available", detail="temporal fusion evaluating aligned signals"), packet.timestamp_s)
                         fusion_start = time.perf_counter()
                         fusion_features = features or tuple(
                             CrowdFeatureRecord(
@@ -412,7 +484,7 @@ def process_video(
                             ) for roi in config.crowd.rois
                         )
                         for feature in fusion_features:
-                            point = fusion_builder.add(feature, latest_violence_evidence)
+                            point = fusion_builder.add(feature, latest_violence_evidence, flow_records if flows_output else ())
                             if point is None:
                                 continue
                             fusion_calls += 1
@@ -420,6 +492,17 @@ def process_video(
                             if fusion_output:
                                 fusion_output.write(json.dumps(asdict(point), sort_keys=True) + "\n")
                             incident, transitions = incident_engine.update(point)
+                            for transition in transitions:
+                                emit_health(StageHealth("incident", "available", detail="human-review incident lifecycle is active"), point.timestamp_s)
+                                emit({
+                                    "type": "incident",
+                                    "incident_id": transition.incident_id,
+                                    "state": transition.to_state,
+                                    "severity": incident.severity if incident else "low",
+                                    "risk": incident.peak_risk if incident else point.fused_risk,
+                                    "reason_codes": list(incident.reason_codes if incident else point.reason_codes),
+                                    "timestamp_s": point.timestamp_s,
+                                })
                             if incidents_output and incident is not None:
                                 incidents_output.write(json.dumps(asdict(incident), sort_keys=True) + "\n")
                             if transitions_output:
@@ -439,6 +522,16 @@ def process_video(
                             violence=latest_violence_evidence,
                         )
                     writer.write(packet, image=image)
+                    if event_sink:
+                        ok, encoded = cv2.imencode(".jpg", image)
+                        if ok:
+                            emit({
+                                "type": "frame",
+                                "frame_index": packet.frame_index,
+                                "timestamp_s": packet.timestamp_s,
+                                "lag_s": max(0.0, time.perf_counter() - start_monotonic - packet.timestamp_s),
+                                "jpeg_base64": base64.b64encode(encoded).decode("ascii"),
+                            })
                     write_seconds += time.perf_counter() - write_start
                     processed_count += 1
                 else:
@@ -450,6 +543,10 @@ def process_video(
                     "processed": process,
                     "schedule_time_s": schedule_time,
                 }, sort_keys=True) + "\n")
+            if flows_output and last_packet_timestamp is not None:
+                for tracker in flow_trackers.values():
+                    for flow in tracker.flush(last_packet_timestamp):
+                        flows_output.write(json.dumps(asdict(flow), sort_keys=True) + "\n")
 
         if m4_enabled and last_fusion_timestamp is not None:
             for incident in incident_engine.flush(last_fusion_timestamp + config.fusion.quiet_period_s):
@@ -473,6 +570,8 @@ def process_video(
             incidents_output.close()
         if transitions_output:
             transitions_output.close()
+        if flows_output:
+            flows_output.close()
     ended_at = _utc_now()
     write_json(
         run_directory / "config.json",
@@ -500,6 +599,7 @@ def process_video(
                     "fusion": fusion_path.name,
                     "incidents": incidents_path.name,
                     "transitions": transitions_path.name,
+                    **({"flows": flows_path.name} if flows_path else {}),
                 } if m4_enabled else {}),
             },
             "stages": {
@@ -554,12 +654,21 @@ def process_video(
             "tracker_calls": tracker_calls,
             "crowd_feature_calls": feature_calls,
             "violence_calls": violence_calls,
+            "video_duration_s": source_metadata["frame_count"] / source_metadata["fps"] if source_metadata["fps"] and source_metadata["frame_count"] else None,
+            "source_fps": source_metadata["fps"],
+            "decoded_frames": decoded_count,
+            "processed_frames": processed_count,
+            "buffered_frames": max_buffered_frames,
+            "required_frames": config.violence.sample_count if m3_enabled else None,
+            "clip_duration_s": config.violence.clip_duration_s if m3_enabled else None,
+            "sample_count": config.violence.sample_count if m3_enabled else None,
             "fusion_seconds": fusion_seconds,
             "fusion_calls": fusion_calls,
             "incident_count": len({
                 json.loads(line)["incident_id"] for line in incidents_path.read_text().splitlines()
             }) if incidents_path and incidents_path.exists() else 0,
             "transition_count": len(transitions_path.read_text().splitlines()) if transitions_path and transitions_path.exists() else 0,
+            "flow_record_count": len(flows_path.read_text().splitlines()) if flows_path and flows_path.exists() else 0,
             "stage_health": {
                 "detector": asdict(detector_health) if detector_health else {"status": "disabled"},
                 "tracker": asdict(tracker_health) if tracker_health else {"status": "disabled"},
@@ -584,8 +693,13 @@ def process_video(
         ]
         metadata["evidence_count"] = len(evidence_manifests)
         write_json(metadata_path, metadata)
+    emit({
+        "type": "complete",
+        "run_id": run_id,
+        "artifact_url": f"/runs/{run_id}/artifact",
+    })
     return RunResult(
         run_id, digest, run_directory, video_path, frames_path, metadata_path, metrics_path,
-        tracks_path, features_path, violence_path, fusion_path, incidents_path, transitions_path,
+        tracks_path, features_path, violence_path, fusion_path, incidents_path, transitions_path, flows_path,
         tuple(config.m5.evidence_root / run_directory.name / manifest.incident_id / "manifest.json" for manifest in evidence_manifests),
     )

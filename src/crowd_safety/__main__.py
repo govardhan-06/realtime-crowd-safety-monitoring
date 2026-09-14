@@ -62,7 +62,7 @@ def main() -> int:
         store = configured_store(config, allow_ephemeral=args.ephemeral)
         if args.run_directory:
             import_run(args.run_directory, store, config.m5.evidence_root)
-        uvicorn.run(create_app(store, config.m5.evidence_root), host=args.host, port=args.port)
+        uvicorn.run(create_app(store, config.m5.evidence_root, processing_config=config), host=args.host, port=args.port)
     return 0
 
 

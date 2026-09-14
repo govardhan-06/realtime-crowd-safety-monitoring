@@ -33,6 +33,27 @@ class TrackingConfig:
 
 
 @dataclass(frozen=True)
+class MotionEntropyConfig:
+    enabled: bool = True
+    pyr_scale: float = 0.5
+    levels: int = 3
+    winsize: int = 15
+    iterations: int = 3
+    poly_n: int = 5
+    poly_sigma: float = 1.2
+    magnitude_bins: int = 8
+    direction_bins: int = 8
+    min_magnitude: float = 0.0
+
+
+@dataclass(frozen=True)
+class LOIConfig:
+    name: str
+    start_xy: tuple[float, float]
+    end_xy: tuple[float, float]
+
+
+@dataclass(frozen=True)
 class CrowdConfig:
     window_s: float = 1.0
     min_track_history: int = 2
@@ -40,6 +61,9 @@ class CrowdConfig:
     congestion_occupancy: int = 5
     congestion_speed_px_s: float = 2.0
     rois: tuple[ROIConfig, ...] = ()
+    motion_entropy: MotionEntropyConfig = MotionEntropyConfig()
+    lois: tuple[LOIConfig, ...] = ()
+    flow_interval_s: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -159,6 +183,60 @@ def _positive_int(value: object, name: str, minimum: int = 1) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
         raise ConfigError(f"{name} must be an integer greater than or equal to {minimum}")
     return value
+
+
+def _motion_entropy_values(value: object) -> MotionEntropyConfig:
+    if value is None:
+        return MotionEntropyConfig()
+    if not isinstance(value, dict):
+        raise ConfigError("[crowd.motion_entropy] must be a TOML table")
+    enabled = value.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("crowd.motion_entropy.enabled must be boolean")
+    pyr_scale = value.get("pyr_scale", 0.5)
+    if not isinstance(pyr_scale, (int, float)) or isinstance(pyr_scale, bool) or not math.isfinite(pyr_scale) or not 0 < pyr_scale < 1:
+        raise ConfigError("crowd.motion_entropy.pyr_scale must be between zero and one")
+    levels = _positive_int(value.get("levels", 3), "crowd.motion_entropy.levels")
+    winsize = _positive_int(value.get("winsize", 15), "crowd.motion_entropy.winsize")
+    if winsize % 2 == 0:
+        raise ConfigError("crowd.motion_entropy.winsize must be odd")
+    iterations = _positive_int(value.get("iterations", 3), "crowd.motion_entropy.iterations")
+    poly_n = _positive_int(value.get("poly_n", 5), "crowd.motion_entropy.poly_n")
+    if poly_n not in {5, 7}:
+        raise ConfigError("crowd.motion_entropy.poly_n must be 5 or 7")
+    poly_sigma = _positive_number(value.get("poly_sigma", 1.2), "crowd.motion_entropy.poly_sigma")
+    magnitude_bins = _positive_int(value.get("magnitude_bins", 8), "crowd.motion_entropy.magnitude_bins", 2)
+    direction_bins = _positive_int(value.get("direction_bins", 8), "crowd.motion_entropy.direction_bins", 2)
+    min_magnitude = _non_negative_number(value.get("min_magnitude", 0.0), "crowd.motion_entropy.min_magnitude")
+    return MotionEntropyConfig(enabled, float(pyr_scale), levels, winsize, iterations, poly_n, float(poly_sigma), magnitude_bins, direction_bins, min_magnitude)
+
+
+def _loi_values(value: object, resize: tuple[int, int]) -> tuple[LOIConfig, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ConfigError("crowd.lois must be an array of tables")
+    width, height = resize
+    result: list[LOIConfig] = []
+    names: set[str] = set()
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise ConfigError(f"crowd.lois[{index}] must be a TOML table")
+        name = raw.get("name")
+        start = raw.get("start")
+        end = raw.get("end")
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise ConfigError(f"crowd.lois[{index}].name must be unique and non-empty")
+        if not all(isinstance(point, list) and len(point) == 2 and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in point) for point in (start, end)):
+            raise ConfigError(f"crowd.lois[{index}] points must contain two numbers")
+        points = tuple(tuple(float(item) for item in point) for point in (start, end))
+        if any(not math.isfinite(item) for point in points for item in point) or any(not (0 <= item <= limit) for point, limits in zip(points, ((width, height), (width, height))) for item, limit in zip(point, limits)):
+            raise ConfigError(f"crowd.lois[{index}] points must fit inside processing.resize")
+        if points[0] == points[1]:
+            raise ConfigError(f"crowd.lois[{index}] must be non-degenerate")
+        names.add(name)
+        result.append(LOIConfig(name, points[0], points[1]))
+    return tuple(result)
 
 
 def _roi_values(value: object, resize: tuple[int, int]) -> tuple[ROIConfig, ...]:
@@ -283,6 +361,9 @@ def load_config(path: str | Path) -> PipelineConfig:
     min_speed_px_s = _non_negative_number(crowd_values.get("min_speed_px_s", 1.0), "crowd.min_speed_px_s")
     congestion_occupancy = _positive_int(crowd_values.get("congestion_occupancy", 5), "crowd.congestion_occupancy")
     congestion_speed_px_s = _non_negative_number(crowd_values.get("congestion_speed_px_s", 2.0), "crowd.congestion_speed_px_s")
+    motion_entropy = _motion_entropy_values(crowd_values.get("motion_entropy"))
+    flow_interval_s = _positive_number(crowd_values.get("flow_interval_s", 60.0), "crowd.flow_interval_s")
+    lois = _loi_values(crowd_values.get("lois"), tuple(resize_value))
 
     violence_enabled = violence_values.get("enabled", False)
     if not isinstance(violence_enabled, bool):
@@ -461,6 +542,9 @@ def load_config(path: str | Path) -> PipelineConfig:
             congestion_occupancy=congestion_occupancy,
             congestion_speed_px_s=congestion_speed_px_s,
             rois=_roi_values(crowd_values.get("rois"), tuple(resize_value)),
+            motion_entropy=motion_entropy,
+            lois=lois,
+            flow_interval_s=flow_interval_s,
         ),
         violence=ViolenceConfig(
             enabled=violence_enabled,

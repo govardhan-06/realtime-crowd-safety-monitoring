@@ -33,6 +33,23 @@ def resolved_config(config: Any, input_path: Path) -> dict[str, Any]:
             "min_speed_px_s": config.crowd.min_speed_px_s,
             "congestion_occupancy": config.crowd.congestion_occupancy,
             "congestion_speed_px_s": config.crowd.congestion_speed_px_s,
+            "motion_entropy": {
+                "enabled": config.crowd.motion_entropy.enabled,
+                "pyr_scale": config.crowd.motion_entropy.pyr_scale,
+                "levels": config.crowd.motion_entropy.levels,
+                "winsize": config.crowd.motion_entropy.winsize,
+                "iterations": config.crowd.motion_entropy.iterations,
+                "poly_n": config.crowd.motion_entropy.poly_n,
+                "poly_sigma": config.crowd.motion_entropy.poly_sigma,
+                "magnitude_bins": config.crowd.motion_entropy.magnitude_bins,
+                "direction_bins": config.crowd.motion_entropy.direction_bins,
+                "min_magnitude": config.crowd.motion_entropy.min_magnitude,
+            },
+            "lois": [
+                {"name": loi.name, "start": list(loi.start_xy), "end": list(loi.end_xy)}
+                for loi in config.crowd.lois
+            ],
+            "flow_interval_s": config.crowd.flow_interval_s,
             "rois": [
                 {"name": roi.name, "polygon": [list(point) for point in roi.polygon]}
                 for roi in config.crowd.rois

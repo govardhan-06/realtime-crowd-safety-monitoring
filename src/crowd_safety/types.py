@@ -103,7 +103,25 @@ class CrowdFeatureRecord:
     dispersal: float | None = None
     counter_flow: float | None = None
     congestion: float | None = None
+    motion_entropy: float | None = None
+    motion_entropy_status: FeatureStatus | None = None
+    motion_entropy_detail: str | None = None
     track_count: int = 0
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class CrowdFlowRecord:
+    source_id: str
+    roi_name: str
+    loi_name: str
+    timestamp_s: float
+    status: FeatureStatus
+    inflow_count: int = 0
+    outflow_count: int = 0
+    inflow_per_min: float | None = None
+    outflow_per_min: float | None = None
+    net_flow_per_min: float | None = None
     detail: str | None = None
 
 
@@ -160,6 +178,12 @@ class FusionPoint:
     persistence_s: float
     fused_risk: float
     reason_codes: tuple[str, ...]
+    motion_entropy: float | None = None
+    motion_entropy_status: FeatureStatus | None = None
+    inflow_per_min: float | None = None
+    outflow_per_min: float | None = None
+    net_flow_per_min: float | None = None
+    flow_status: FeatureStatus | None = None
 
 
 @dataclass(frozen=True)

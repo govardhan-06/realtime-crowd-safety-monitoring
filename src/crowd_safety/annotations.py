@@ -40,7 +40,8 @@ def annotate_frame(
     for index, feature in enumerate(features):
         status = feature.status
         count = feature.occupancy if feature.occupancy is not None else "-"
-        text = f"crowd {feature.roi_name}: count={count} status={status}"
+        entropy = "-" if feature.motion_entropy is None else f"{feature.motion_entropy:.2f}"
+        text = f"crowd {feature.roi_name}: count={count} entropy={entropy} status={status}"
         _put_contrasted_text(annotated, text, (8, 38 + index * 16), (0, 120, 120))
     if violence is None:
         violence_text = "violence: warming up (need 16 frames)"

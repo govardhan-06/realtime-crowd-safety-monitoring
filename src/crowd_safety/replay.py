@@ -8,7 +8,7 @@ from .config import PipelineConfig
 from .artifacts import config_hash, resolved_config
 from .fusion import FUSION_STRATEGIES, FUSION_VERSION, build_fusion_points
 from .incidents import IncidentReplay, replay_incidents
-from .types import CrowdFeatureRecord, ViolenceEvidence
+from .types import CrowdFeatureRecord, CrowdFlowRecord, ViolenceEvidence
 
 
 STRATEGIES = FUSION_STRATEGIES
@@ -18,7 +18,7 @@ def _rows(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def _signals(run_directory: Path) -> tuple[list[CrowdFeatureRecord], list[ViolenceEvidence]]:
+def _signals(run_directory: Path) -> tuple[list[CrowdFeatureRecord], list[ViolenceEvidence], list[CrowdFlowRecord]]:
     features: list[CrowdFeatureRecord] = []
     for row in _rows(run_directory / "features.jsonl"):
         features.extend(CrowdFeatureRecord(**value) for value in row["features"])
@@ -29,7 +29,8 @@ def _signals(run_directory: Path) -> tuple[list[CrowdFeatureRecord], list[Violen
         })
         for row in _rows(run_directory / "violence.jsonl")
     ] if (run_directory / "violence.jsonl").exists() else []
-    return features, evidence
+    flows = [CrowdFlowRecord(**row) for row in _rows(run_directory / "flows.jsonl")] if (run_directory / "flows.jsonl").exists() else []
+    return features, evidence, flows
 
 
 def replay_run(
@@ -44,7 +45,7 @@ def replay_run(
     replay_hash = config_hash(replay_values)
     if replay_hash != stored_config.get("config_hash"):
         raise ValueError("replay config does not match the run's resolved config hash")
-    features, evidence = _signals(run_directory)
+    features, evidence, flows = _signals(run_directory)
     results: dict[str, IncidentReplay] = {}
     replay_directory = run_directory / "replay"
     replay_directory.mkdir(exist_ok=True)
@@ -55,7 +56,7 @@ def replay_run(
         "strategies": list(strategies),
     }, indent=2, sort_keys=True) + "\n")
     for strategy in strategies:
-        points = build_fusion_points(features, evidence, config.fusion, strategy=strategy)
+        points = build_fusion_points(features, evidence, config.fusion, strategy=strategy, flow_records=flows)
         result = replay_incidents(points, config.fusion)
         results[strategy] = result
         strategy_directory = replay_directory / strategy

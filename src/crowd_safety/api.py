@@ -4,13 +4,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+import asyncio
+
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .explanations import DisabledExplainer, IncidentExplainer, explain_incident
 from .persistence import Persistence
+from .streaming import RunManager
+from .config import PipelineConfig
 
 
 IncidentStateParam = Literal["candidate", "active", "escalating", "critical", "resolving", "closed"]
@@ -46,15 +50,16 @@ def _public_incident(record: dict) -> dict:
     }
 
 
-def create_app(store: Persistence, evidence_root: str | Path | None = None, explainer: IncidentExplainer | None = None) -> FastAPI:
+def create_app(store: Persistence, evidence_root: str | Path | None = None, explainer: IncidentExplainer | None = None, processing_config: PipelineConfig | None = None) -> FastAPI:
     app = FastAPI(title="Crowd Safety Human Review API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
         allow_methods=["GET", "POST"],
-        allow_headers=["content-type"],
+        allow_headers=["content-type", "x-filename"],
     )
     explainer = explainer or DisabledExplainer()
+    run_manager = RunManager(processing_config, store) if processing_config else None
 
     @app.get("/health")
     def health() -> dict:
@@ -66,14 +71,58 @@ def create_app(store: Persistence, evidence_root: str | Path | None = None, expl
 
     @app.get("/runs")
     def runs() -> list[dict]:
-        return [_public_run(run) for run in store.list_runs()]
+        imported = {run["run_id"]: _public_run(run) for run in store.list_runs()}
+        if run_manager:
+            imported.update({run_id: _public_run(run_manager.get(run_id) or {}) for run_id in run_manager._jobs})
+        return list(imported.values())
+
+    @app.post("/runs", status_code=201)
+    async def create_run(request: Request) -> dict:
+        if run_manager is None:
+            raise HTTPException(503, "processing is not configured")
+        filename = request.headers.get("x-filename", "upload.mp4")
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+            raise HTTPException(415, "unsupported video filename")
+        content = await request.body()
+        if not content:
+            raise HTTPException(422, "video upload is required")
+        if len(content) > 100 * 1024 * 1024:
+            raise HTTPException(413, "video upload exceeds 100 MB")
+        return {"run_id": run_manager.submit(content, filename, request.headers.get("content-type"))}
+
+    @app.get("/runs/{run_id}/artifact")
+    def run_artifact(run_id: str) -> FileResponse:
+        run = run_manager.get(run_id) if run_manager else None
+        path = Path(run.get("artifacts", {}).get("annotated_video", "")) if run else None
+        if path is None or not path.is_file():
+            raise HTTPException(404, "artifact not found")
+        return FileResponse(path, media_type="video/mp4", filename=path.name)
 
     @app.get("/runs/{run_id}")
     def run_detail(run_id: str) -> dict:
-        run = store.get_run(run_id)
+        run = run_manager.get(run_id) if run_manager else store.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
         return _public_run(run)
+
+    @app.websocket("/runs/{run_id}/stream")
+    async def run_stream(websocket: WebSocket, run_id: str) -> None:
+        if run_manager is None or not run_manager.known(run_id):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        cursor = 0
+        while True:
+            cursor, events = run_manager.events(run_id, cursor)
+            for event in events:
+                await websocket.send_json(event)
+                if event["type"] in {"complete", "error"}:
+                    return
+            state = run_manager.get(run_id).get("state")
+            if state in {"completed", "failed"}:
+                return
+            await asyncio.sleep(0.03)
 
     @app.get("/incidents")
     def incidents(

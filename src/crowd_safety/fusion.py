@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .config import FusionConfig
-from .types import CrowdFeatureRecord, FusionPoint, FusionStrategy, ViolenceEvidence
+from .types import CrowdFeatureRecord, CrowdFlowRecord, FusionPoint, FusionStrategy, ViolenceEvidence
 
 
 _FEATURES = (
@@ -88,15 +88,20 @@ class FusionBuilder:
         self._violence: list[ViolenceEvidence] = []
         self._history: dict[tuple[str, str], list[tuple[float, float | None, float | None]]] = {}
         self._positive_since: dict[tuple[str, str], float | None] = {}
+        self._flow: list[CrowdFlowRecord] = []
 
     def add(
         self,
         record: CrowdFeatureRecord,
         violence: ViolenceEvidence | None = None,
+        flow_records: Iterable[CrowdFlowRecord] = (),
     ) -> FusionPoint | None:
         key = (record.source_id, record.roi_name, record.timestamp_s)
         if violence is not None and violence not in self._violence:
             self._violence.append(violence)
+        for flow in flow_records:
+            if flow not in self._flow:
+                self._flow.append(flow)
         if key in self._seen:
             return None
         self._seen.add(key)
@@ -173,6 +178,12 @@ class FusionBuilder:
             matched.clip_end_s if matched else None,
             effective_violence_score, stale,
             normalized, smoothed_violence, smoothed_crowd, persistence, _clamp(risk), tuple(reasons),
+            motion_entropy=record.motion_entropy,
+            motion_entropy_status=record.motion_entropy_status,
+            inflow_per_min=sum(item.inflow_per_min or 0.0 for item in self._flow if item.source_id == record.source_id and item.roi_name == record.roi_name and abs(item.timestamp_s - record.timestamp_s) < 1e-9),
+            outflow_per_min=sum(item.outflow_per_min or 0.0 for item in self._flow if item.source_id == record.source_id and item.roi_name == record.roi_name and abs(item.timestamp_s - record.timestamp_s) < 1e-9),
+            net_flow_per_min=sum(item.net_flow_per_min or 0.0 for item in self._flow if item.source_id == record.source_id and item.roi_name == record.roi_name and abs(item.timestamp_s - record.timestamp_s) < 1e-9),
+            flow_status=(next((item.status for item in self._flow if item.source_id == record.source_id and item.roi_name == record.roi_name and abs(item.timestamp_s - record.timestamp_s) < 1e-9), None)),
         )
         violence_history.append((record.timestamp_s, effective_violence_score, crowd_risk))
         if len(violence_history) > self.config.smoothing_points:
@@ -185,10 +196,12 @@ def build_fusion_points(
     violence_evidence: Iterable[ViolenceEvidence],
     config: FusionConfig,
     strategy: FusionStrategy | None = None,
+    flow_records: Iterable[CrowdFlowRecord] = (),
 ) -> tuple[FusionPoint, ...]:
     builder = FusionBuilder(config, strategy)
     evidence = sorted(violence_evidence, key=lambda item: (item.source_id, item.clip_end_s, item.clip_start_s))
     builder._violence.extend(evidence)
+    builder._flow.extend(flow_records)
     rows: list[FusionPoint] = []
     for record in crowd_records:
         point = builder.add(record)
