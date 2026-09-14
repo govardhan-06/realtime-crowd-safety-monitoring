@@ -6,6 +6,65 @@ from crowd_safety.config import ConfigError, load_config
 
 
 class ConfigTest(unittest.TestCase):
+    def test_loads_motion_entropy_and_loi_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "pipeline.toml"
+            path.write_text("""\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+resize = [100, 80]
+[crowd]
+flow_interval_s = 5.0
+[crowd.motion_entropy]
+winsize = 11
+magnitude_bins = 4
+direction_bins = 12
+[[crowd.lois]]
+name = "gate"
+start = [50, 10]
+end = [50, 70]
+""")
+            config = load_config(path)
+
+        self.assertEqual(config.crowd.motion_entropy.winsize, 11)
+        self.assertEqual(config.crowd.lois[0].name, "gate")
+        self.assertEqual(config.crowd.flow_interval_s, 5.0)
+
+    def test_rejects_invalid_motion_entropy_and_loi_settings(self):
+        base = """\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+resize = [100, 80]
+[crowd.motion_entropy]
+{setting}
+"""
+        for setting in ("winsize = 0", "magnitude_bins = 1", "pyr_scale = 1.0"):
+            with self.subTest(setting=setting), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "pipeline.toml"
+                path.write_text(base.format(setting=setting))
+                with self.assertRaises(ConfigError):
+                    load_config(path)
+        for loi in ("start = [-1, 0]\nend = [100, 80]", "start = [50, 10]\nend = [50, 10]"):
+            with self.subTest(loi=loi), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "pipeline.toml"
+                path.write_text("""\
+[input]
+path = "input.mp4"
+[output]
+directory = "artifacts"
+[processing]
+resize = [100, 80]
+[[crowd.lois]]
+name = "gate"
+""" + loi + "\n")
+                with self.assertRaises(ConfigError):
+                    load_config(path)
     def test_loads_defaults_and_resolves_paths_relative_to_config(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "pipeline.toml"

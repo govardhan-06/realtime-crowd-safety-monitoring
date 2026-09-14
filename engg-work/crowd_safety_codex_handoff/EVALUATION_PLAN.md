@@ -73,7 +73,7 @@ Required comparison:
 - M3A ready-made pretrained X3D-M violence checkpoint;
 - M3B project X3D-S transfer-learning checkpoint.
 
-M3A component evaluation is separate from the five-strategy full-system evaluation: score reviewed `violence.jsonl` windows and overlapping violence events first, and do not treat unavailable windows as negative examples.
+M3A component evaluation is separate from the five-strategy full-system evaluation: score reviewed `violence.jsonl` windows and overlapping violence events first, and do not treat unavailable windows as negative examples. Every row records decode/buffer diagnostics and an explicit insufficient reason; summaries pair available-only metrics with video/window coverage. Threshold and video aggregation selection are validation-only and persisted with model/config provenance before test or external-test scoring.
 
 Do not report third-party model-card metrics as project results.
 
@@ -172,6 +172,15 @@ Optional:
 - M3A X3D-M baseline vs M3B X3D-S transfer-learning result;
 - engineered motion only vs engineered + optical flow;
 - rule fusion vs learned fusion.
+
+The current crowd-signal ablation matrix is also emitted from the replayed signal stream:
+
+- A: existing track-derived crowd features;
+- B: A plus dense optical-flow motion entropy;
+- C: A plus LOI flow;
+- D: A plus both new signals.
+
+These rows include event precision/recall/F1, false alerts per camera-hour, detection delay, duplicate alerts per incident, run/config/feature traceability, and the validation-selection identifier. New M4 weights remain zero/default until a separately reviewed ablation decision promotes them.
 
 The VLM explanation layer is excluded from detection/fusion ablations because it is downstream and non-authoritative.
 

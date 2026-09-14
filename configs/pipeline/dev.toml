@@ -32,6 +32,19 @@ min_track_history = 2
 min_speed_px_s = 1.0
 congestion_occupancy = 5
 congestion_speed_px_s = 2.0
+flow_interval_s = 60.0
+
+[crowd.motion_entropy]
+enabled = true
+pyr_scale = 0.5
+levels = 3
+winsize = 15
+iterations = 3
+poly_n = 5
+poly_sigma = 1.2
+magnitude_bins = 8
+direction_bins = 8
+min_magnitude = 0.0
 
 [[crowd.rois]]
 name = "development-frame"

@@ -33,6 +33,32 @@ def make_video(path: Path, frame_count: int = 6) -> None:
 
 
 class RunnerTest(unittest.TestCase):
+    def test_process_video_event_sink_emits_source_timed_frames_and_completion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            config_path = root / "pipeline.toml"
+            make_video(source, frame_count=2)
+            config_path.write_text(f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 6.0
+resize = [16, 12]
+[annotation]
+enabled = true
+""")
+            events = []
+            result = process_video(load_config(config_path), event_sink=events.append)
+
+        frames = [event for event in events if event["type"] == "frame"]
+        self.assertEqual([event["frame_index"] for event in frames], [0, 1])
+        self.assertEqual([event["timestamp_s"] for event in frames], [0.0, 1 / 6])
+        self.assertTrue(all(event["jpeg_base64"] for event in frames))
+        self.assertEqual(events[-1]["type"], "complete")
+        self.assertEqual(events[-1]["run_id"], result.run_id)
     def test_overlay_shows_violence_status_separately_from_feature_status(self):
         evidence = ViolenceEvidence(
             "camera-1", None, 1.0, 3.0, 0.65, "fake", "revision",
@@ -169,6 +195,9 @@ polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
         self.assertEqual(len(features), len(tracks))
         self.assertEqual(features[0]["features"][0]["status"], "insufficient")
         self.assertEqual(features[-1]["features"][0]["status"], "available")
+        self.assertIsNone(features[0]["features"][0]["motion_entropy"])
+        self.assertEqual(features[0]["features"][0]["motion_entropy_status"], "insufficient")
+        self.assertEqual(features[-1]["features"][0]["motion_entropy_status"], "available")
         self.assertEqual(metadata["artifacts"]["tracks"], result.tracks_path.name)
         self.assertGreater(metrics["tracker_calls"], 0)
         self.assertEqual(fake_tracker.calls, metrics["tracker_calls"])
@@ -208,6 +237,53 @@ polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
         self.assertTrue(feature_rows)
         self.assertEqual(feature_rows[0]["features"][0]["status"], "unavailable")
         self.assertEqual(feature_rows[0]["health"]["status"], "degraded")
+
+    def test_m2_loi_flow_is_written_as_a_separate_artifact(self):
+        class FakeDetector:
+            def detect(self, packet):
+                return DetectionResult((), StageHealth("detector", "available", model="fake"))
+
+        class FakeTracker:
+            def update(self, packet, detections=()):
+                x = 5.0 if packet.frame_index == 0 else 15.0
+                track = TrackObservation(packet.source_id, 1, packet.frame_index, packet.timestamp_s, (x, 5.0), (x - 1, 4, x + 1, 6), 0.9)
+                return TrackingResult((track,), StageHealth("tracker", "available", model="fake"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            config_path = root / "pipeline.toml"
+            make_video(source, frame_count=2)
+            config_path.write_text(f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 6.0
+resize = [32, 24]
+[perception]
+enabled = true
+cadence_fps = 6.0
+[crowd]
+flow_interval_s = 60.0
+[[crowd.rois]]
+name = "frame"
+polygon = [[0, 0], [32, 0], [32, 24], [0, 24]]
+[[crowd.lois]]
+name = "gate"
+start = [10, 0]
+end = [10, 24]
+""")
+            result = process_video(load_config(config_path), detector=FakeDetector(), tracker=FakeTracker())
+            flows = [json.loads(line) for line in result.flows_path.read_text().splitlines()]
+            metadata = json.loads(result.metadata_path.read_text())
+
+        self.assertIsNotNone(result.flows_path)
+        self.assertTrue(flows)
+        self.assertEqual(flows[-1]["loi_name"], "gate")
+        self.assertEqual(flows[-1]["inflow_count"], 1)
+        self.assertEqual(metadata["artifacts"]["flows"], "flows.jsonl")
 
     def test_fake_violence_adapter_emits_aligned_timeline_and_provenance(self):
         class FakeViolenceClassifier:

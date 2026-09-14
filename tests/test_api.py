@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 from crowd_safety.api import create_app
 from crowd_safety.explanations import FakeExplainer
 from crowd_safety.persistence import MemoryPersistence
+from crowd_safety.config import load_config
+from crowd_safety.streaming import EventBuffer
+from tests.support.synthetic_video import create_video
 
 
 def seeded_store() -> MemoryPersistence:
@@ -30,6 +33,51 @@ def seeded_store() -> MemoryPersistence:
 
 
 class APITest(unittest.TestCase):
+    def test_event_buffer_drops_old_frames_before_control_events(self):
+        buffer = EventBuffer(limit=3)
+        buffer.publish({"type": "status", "state": "processing"})
+        for index in range(3):
+            buffer.publish({"type": "frame", "frame_index": index})
+        buffer.publish({"type": "error", "message": "failed"})
+
+        _, events = buffer.since(0)
+        self.assertEqual([event["type"] for event in events], ["status", "frame", "error"])
+        self.assertEqual(events[-1]["type"], "error")
+
+    def test_upload_run_streams_frames_and_rejects_missing_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            create_video(source, frame_count=2, fps=6.0)
+            config_path = root / "pipeline.toml"
+            config_path.write_text(f"""\
+[input]
+path = "{source}"
+[output]
+directory = "{root / 'artifacts'}"
+[processing]
+target_fps = 6.0
+resize = [16, 12]
+[annotation]
+enabled = true
+""")
+            client = TestClient(create_app(MemoryPersistence(), processing_config=load_config(config_path)))
+            self.assertEqual(client.post("/runs", data=b"").status_code, 422)
+            response = client.post("/runs", content=source.read_bytes(), headers={"content-type": "video/mp4", "x-filename": "sample.mp4"})
+            self.assertEqual(response.status_code, 201)
+            run_id = response.json()["run_id"]
+            with client.websocket_connect(f"/runs/{run_id}/stream") as websocket:
+                events = []
+                while events[-1]["type"] != "complete" if events else True:
+                    events.append(websocket.receive_json())
+                    if len(events) > 20:
+                        self.fail("stream did not complete")
+            self.assertEqual(events[0], {"type": "status", "state": "processing"})
+            self.assertTrue(any(event["type"] == "frame" for event in events))
+            self.assertEqual(events[-1]["type"], "complete")
+            final = client.get(f"/runs/{run_id}")
+            self.assertEqual(final.json()["state"], "completed")
+            self.assertTrue(Path(final.json()["artifacts"]["annotated_video"]).exists())
     def test_read_endpoints_return_deterministic_records_without_source_paths(self):
         client = TestClient(create_app(seeded_store()))
 

@@ -145,6 +145,12 @@ smoothing_points = 1
                     "label_mapping": [["safe", 0], ["unsafe", 1]], "status": "available",
                 },
             }) + "\n")
+            (run_directory / "flows.jsonl").write_text(json.dumps({
+                "source_id": "camera-1", "roi_name": "zone", "loi_name": "main-entry",
+                "timestamp_s": 1.0, "status": "available", "inflow_count": 2,
+                "outflow_count": 1, "inflow_per_min": 2.0, "outflow_per_min": 1.0,
+                "net_flow_per_min": 1.0,
+            }) + "\n")
             result = subprocess.run(
                 [sys.executable, "-m", "crowd_safety", "replay", "--run-directory", str(run_directory), "--config", str(config)],
                 check=True, capture_output=True, text=True,
@@ -152,7 +158,12 @@ smoothing_points = 1
             replay_directory = Path(result.stdout.strip())
             strategies = ("violence-only", "crowd-only", "naive-or", "rule-fusion", "temporal")
             self.assertEqual({path.name for path in replay_directory.iterdir()}, {*strategies, "metadata.json"})
-            self.assertTrue((replay_directory / "temporal" / "fusion.jsonl").read_text())
+            temporal = [
+                json.loads(line)
+                for line in (replay_directory / "temporal" / "fusion.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(temporal[0]["inflow_per_min"], 2.0)
+            self.assertEqual(temporal[0]["flow_status"], "available")
             changed_config = root / "changed.toml"
             changed_config.write_text(config.read_text().replace("smoothing_points = 1", "smoothing_points = 2"))
             with self.assertRaisesRegex(ValueError, "config"):

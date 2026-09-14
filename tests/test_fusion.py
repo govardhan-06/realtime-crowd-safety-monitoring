@@ -1,8 +1,10 @@
 import unittest
 
+from dataclasses import replace
+
 from crowd_safety.config import FusionConfig, FusionNormalizationConfig, ROIConfig
 from crowd_safety.fusion import build_fusion_points
-from crowd_safety.types import CrowdFeatureRecord, ViolenceEvidence
+from crowd_safety.types import CrowdFeatureRecord, CrowdFlowRecord, ViolenceEvidence
 
 
 def crowd(timestamp, *, density=0.0, speed=0.0, convergence=0.0, status="available"):
@@ -71,6 +73,18 @@ class FusionTest(unittest.TestCase):
         second = CrowdFeatureRecord("camera-1", "a-first", 1.0, "available", occupancy=2)
         rows = build_fusion_points([first, second], [], FusionConfig(smoothing_points=1))
         self.assertEqual([row.region_id for row in rows], ["zone", "a-first"])
+
+    def test_new_context_is_retained_without_affecting_risk(self):
+        config = FusionConfig(smoothing_points=1)
+        plain = build_fusion_points([crowd(1.0)], [], config)[0]
+        enriched_crowd = replace(crowd(1.0), motion_entropy=0.8, motion_entropy_status="available")
+        flow = CrowdFlowRecord("camera-1", "zone", "gate", 1.0, "available", 2, 1, 2.0, 1.0, 1.0)
+        enriched = build_fusion_points([enriched_crowd], [], config, flow_records=[flow])[0]
+
+        self.assertEqual(enriched.fused_risk, plain.fused_risk)
+        self.assertEqual(enriched.motion_entropy, 0.8)
+        self.assertEqual(enriched.inflow_per_min, 2.0)
+        self.assertEqual(enriched.net_flow_per_min, 1.0)
 
 
 if __name__ == "__main__":
