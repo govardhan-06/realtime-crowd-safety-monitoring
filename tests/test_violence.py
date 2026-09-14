@@ -11,6 +11,7 @@ from crowd_safety.violence import (
     ClipWindow,
     VideoMAEViolenceClassifier,
     X3DViolenceClassifier,
+    _load_x3d_checkpoint,
     create_violence_classifier,
 )
 
@@ -63,6 +64,20 @@ class FakeX3DModel:
 
 
 class ViolenceAdapterTest(unittest.TestCase):
+    def test_x3d_checkpoint_load_allowlists_numpy_scalar_with_weights_only(self):
+        safe_globals = mock.Mock()
+        safe_globals.return_value.__enter__ = mock.Mock(return_value=None)
+        safe_globals.return_value.__exit__ = mock.Mock(return_value=None)
+        fake_torch = mock.Mock()
+        fake_torch.serialization.safe_globals = safe_globals
+        fake_torch.load.return_value = {"model": {}}
+
+        checkpoint = _load_x3d_checkpoint(Path("checkpoint.pt"), fake_torch)
+
+        self.assertEqual(checkpoint, {"model": {}})
+        safe_globals.assert_called_once()
+        fake_torch.load.assert_called_once_with(Path("checkpoint.pt"), map_location="cpu", weights_only=True)
+
     def test_maps_confirmed_unsafe_label_to_generic_score(self):
         classifier = VideoMAEViolenceClassifier(
             "model", "revision", device="cpu", processor=FakeProcessor(), model_instance=FakeModel()

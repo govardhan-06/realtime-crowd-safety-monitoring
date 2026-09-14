@@ -9,6 +9,15 @@ from typing import Any, Protocol
 from .types import FramePacket, StageHealth, ViolenceEvidence
 
 
+def _load_x3d_checkpoint(path: Path, torch: Any) -> Any:
+    import numpy as np
+
+    numpy_core = np._core if hasattr(np, "_core") else np.core
+    safe_globals = [numpy_core.multiarray.scalar, np.dtype, type(np.dtype(np.float32))]
+    with torch.serialization.safe_globals(safe_globals):
+        return torch.load(path, map_location="cpu", weights_only=True)
+
+
 @dataclass(frozen=True)
 class ClipWindow:
     packets: tuple[FramePacket, ...]
@@ -410,7 +419,7 @@ class X3DViolenceClassifier:
             self._verify_checkpoint(path)
             model = x3d_m(pretrained=False)
             model.blocks[5].proj = torch.nn.Linear(2048, 2)
-            checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+            checkpoint = _load_x3d_checkpoint(path, torch)
             state_dict = checkpoint.get("model", checkpoint.get("model_state_dict", checkpoint))
             model.load_state_dict(state_dict)
             self.checkpoint_path = path
