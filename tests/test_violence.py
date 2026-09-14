@@ -75,6 +75,16 @@ class ViolenceAdapterTest(unittest.TestCase):
 
         self.assertEqual(set(normalized), {"blocks.0.weight", "blocks.5.proj.weight"})
 
+    def test_x3d_checkpoint_state_dict_flattens_sequential_head(self):
+        state_dict = {
+            "blocks.5.proj.1.weight": torch.ones(2, 2048),
+            "blocks.5.proj.1.bias": torch.zeros(2),
+        }
+
+        normalized = _normalize_x3d_state_dict(state_dict)
+
+        self.assertEqual(set(normalized), {"blocks.5.proj.weight", "blocks.5.proj.bias"})
+
     def test_x3d_checkpoint_load_allowlists_numpy_scalar_with_weights_only(self):
         import numpy as np
 

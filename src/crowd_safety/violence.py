@@ -27,7 +27,12 @@ def _normalize_x3d_state_dict(state_dict: Any) -> Any:
     if not isinstance(state_dict, dict) or not state_dict:
         return state_dict
     if all(isinstance(key, str) and key.startswith("backbone.") for key in state_dict):
-        return {key.removeprefix("backbone."): value for key, value in state_dict.items()}
+        state_dict = {key.removeprefix("backbone."): value for key, value in state_dict.items()}
+    if "blocks.5.proj.1.weight" in state_dict and "blocks.5.proj.weight" not in state_dict:
+        state_dict = {
+            key.replace("blocks.5.proj.1.", "blocks.5.proj.", 1): value
+            for key, value in state_dict.items()
+        }
     return state_dict
 
 
