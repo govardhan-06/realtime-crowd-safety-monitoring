@@ -46,7 +46,8 @@ authorised source/archive
   code.
 - `colab-notebooks/x3d_baseline_evaluation.ipynb`: focused M3A evaluator with
   the pinned X3D contract, binary manifest loading, saved-run reuse/fresh-run
-  options, and per-dataset metrics.
+  options, per-dataset metrics, generator-safe round-robin selection, and
+  validation-first resumable calibration.
 - `evaluation/manifests/manifest.json`: checked-in reviewed incident-manifest
   template, now UBI-Fights-scoped and intentionally pointing at a review
   placeholder rather than claiming available media.
@@ -93,6 +94,11 @@ The checked-in incident manifest is a review template only.
   input path matching the manifest record; mismatched artifacts are rejected.
 - Missing/unavailable X3D artifacts remain explicit and are excluded from
   scored negatives.
+- Validation calibration is blocked until every validation manifest record has
+  a prediction row; capped runs can be rerun without calibrating on test data
+  or silently accepting an empty validation batch.
+- Completed available-model runs with no score are reused as terminal
+  diagnostics, while unavailable/degraded runs remain eligible for retry.
 
 ## 8. Frontend Behavior
 
@@ -115,10 +121,15 @@ opt-in.
 - Executed the M6 binary-adapter fixture check for per-dataset metrics, missing
   evidence, and path/manifest handling.
 - Executed the X3D notebook's contract and per-dataset scoring self-checks.
+- Exercised validation-first ordering, generator-safe dataset round-robin
+  selection, and incomplete-validation detection with a focused fixture.
+- Exercised reuse of terminal no-score diagnostics without treating them as
+  reusable scored violence results.
+- Ran the full repository unittest suite: 119 tests passed.
 - Ran scoped `git diff --check` and searched the named cleanup scope for old
   dataset/layout references.
-- Not run: full unittest suite, real Drive/Kaggle download, X3D inference,
-  browser, Docker, deployment, and live incident smoke evaluation.
+- Not run: real Drive/Kaggle download, X3D inference, browser, Docker,
+  deployment, and live incident smoke evaluation.
 
 ## 11. Risks and Assumptions
 
